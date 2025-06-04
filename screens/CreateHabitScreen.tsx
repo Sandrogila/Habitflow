@@ -20,41 +20,29 @@ type CreateHabitScreenProps = {
 };
 
 const categories = [
-  { id: 'health', name: 'Saúde', icon: '💪' },
-  { id: 'productivity', name: 'Produtividade', icon: '⚡' },
-  { id: 'learning', name: 'Aprendizado', icon: '📚' },
-  { id: 'fitness', name: 'Exercícios', icon: '🏃' },
-  { id: 'mindfulness', name: 'Bem-estar', icon: '🧘' },
-  { id: 'social', name: 'Social', icon: '👥' },
-  { id: 'creativity', name: 'Criatividade', icon: '🎨' },
-  { id: 'other', name: 'Outros', icon: '📝' },
-];
-
-const frequencies = [
-  { id: 'daily', name: 'Diário', description: 'Todos os dias' },
-  { id: 'weekdays', name: 'Dias úteis', description: 'Segunda a sexta' },
-  { id: 'weekends', name: 'Fins de semana', description: 'Sábado e domingo' },
-  { id: 'custom', name: 'Personalizado', description: 'Escolher dias' },
+  { id: 'Saúde', name: 'Saúde', color: '#7C3AED' },
+  { id: 'Educação', name: 'Educação', color: '#16A34A' },
+  { id: 'Exercício', name: 'Exercício', color: '#EA580C' },
+  { id: 'Lazer', name: 'Lazer', color: '#0891B2' },
 ];
 
 const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => {
   const { addHabit } = useHabits();
   const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [frequency, setFrequency] = useState('daily');
-  const [time, setTime] = useState('');
+  const [time, setTime] = useState('08:00');
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
   const weekDays = [
-    { id: 0, name: 'Dom', fullName: 'Domingo' },
-    { id: 1, name: 'Seg', fullName: 'Segunda' },
-    { id: 2, name: 'Ter', fullName: 'Terça' },
-    { id: 3, name: 'Qua', fullName: 'Quarta' },
-    { id: 4, name: 'Qui', fullName: 'Quinta' },
-    { id: 5, name: 'Sex', fullName: 'Sexta' },
-    { id: 6, name: 'Sáb', fullName: 'Sábado' },
+    { id: 1, name: 'S', fullName: 'Segunda' },
+    { id: 2, name: 'T', fullName: 'Terça' },
+    { id: 3, name: 'Q', fullName: 'Quarta' },
+    { id: 4, name: 'Q', fullName: 'Quinta' },
+    { id: 5, name: 'S', fullName: 'Sexta' },
+    { id: 6, name: 'S', fullName: 'Sábado' },
+    { id: 0, name: 'D', fullName: 'Domingo' },
   ];
 
   const toggleDay = (dayId: number) => {
@@ -93,9 +81,6 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         case 'weekdays':
           activeDays = [1, 2, 3, 4, 5];
           break;
-        case 'weekends':
-          activeDays = [0, 6];
-          break;
         case 'custom':
           activeDays = selectedDays;
           break;
@@ -104,7 +89,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
       const newHabit = {
         id: Date.now().toString(),
         name: name.trim(),
-        description: description.trim(),
+        description: '',
         category,
         frequency,
         time: time.trim(),
@@ -135,15 +120,15 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.content}>
             <View style={styles.header}>
-              <Text style={styles.title}>Criar Novo Hábito</Text>
-              <Text style={styles.subtitle}>
-                Defina um hábito que transformará sua rotina
-              </Text>
+              <Text style={styles.greeting}>Olá, Délcio!</Text>
+              <Text style={styles.subtitle}>Continue construindo seus hábitos</Text>
             </View>
+
+            <Text style={styles.title}>Adicionar Novo Hábito</Text>
 
             <View style={styles.form}>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Nome do hábito *</Text>
+                <Text style={styles.label}>Nome do Hábito</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Ex: Beber 2L de água"
@@ -154,34 +139,20 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Descrição (opcional)</Text>
-                <TextInput
-                  style={[styles.input, styles.textArea]}
-                  placeholder="Adicione detalhes sobre seu hábito..."
-                  value={description}
-                  onChangeText={setDescription}
-                  multiline
-                  numberOfLines={3}
-                  maxLength={200}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Categoria *</Text>
-                <View style={styles.categoriesGrid}>
+                <Text style={styles.label}>Categoria</Text>
+                <View style={styles.categoriesContainer}>
                   {categories.map((cat) => (
                     <TouchableOpacity
                       key={cat.id}
                       style={[
-                        styles.categoryCard,
-                        category === cat.id && styles.categoryCardSelected
+                        styles.categoryButton,
+                        category === cat.id && { backgroundColor: cat.color }
                       ]}
                       onPress={() => setCategory(cat.id)}
                     >
-                      <Text style={styles.categoryIcon}>{cat.icon}</Text>
                       <Text style={[
-                        styles.categoryName,
-                        category === cat.id && styles.categoryNameSelected
+                        styles.categoryText,
+                        category === cat.id && styles.categoryTextSelected
                       ]}>
                         {cat.name}
                       </Text>
@@ -193,35 +164,56 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Frequência</Text>
                 <View style={styles.frequencyContainer}>
-                  {frequencies.map((freq) => (
-                    <TouchableOpacity
-                      key={freq.id}
-                      style={[
-                        styles.frequencyCard,
-                        frequency === freq.id && styles.frequencyCardSelected
-                      ]}
-                      onPress={() => setFrequency(freq.id)}
-                    >
-                      <Text style={[
-                        styles.frequencyName,
-                        frequency === freq.id && styles.frequencyNameSelected
-                      ]}>
-                        {freq.name}
-                      </Text>
-                      <Text style={[
-                        styles.frequencyDescription,
-                        frequency === freq.id && styles.frequencyDescriptionSelected
-                      ]}>
-                        {freq.description}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyOption,
+                      frequency === 'daily' && styles.frequencyOptionSelected
+                    ]}
+                    onPress={() => setFrequency('daily')}
+                  >
+                    <View style={[
+                      styles.radioButton,
+                      frequency === 'daily' && styles.radioButtonSelected
+                    ]}>
+                      {frequency === 'daily' && <View style={styles.radioButtonInner} />}
+                    </View>
+                    <Text style={styles.frequencyText}>Todos os dias</Text>
+                  </TouchableOpacity>
 
-              {frequency === 'custom' && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Dias da semana</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyOption,
+                      frequency === 'weekdays' && styles.frequencyOptionSelected
+                    ]}
+                    onPress={() => setFrequency('weekdays')}
+                  >
+                    <View style={[
+                      styles.radioButton,
+                      frequency === 'weekdays' && styles.radioButtonSelected
+                    ]}>
+                      {frequency === 'weekdays' && <View style={styles.radioButtonInner} />}
+                    </View>
+                    <Text style={styles.frequencyText}>Dias úteis</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.frequencyOption,
+                      frequency === 'custom' && styles.frequencyOptionSelected
+                    ]}
+                    onPress={() => setFrequency('custom')}
+                  >
+                    <View style={[
+                      styles.radioButton,
+                      frequency === 'custom' && styles.radioButtonSelected
+                    ]}>
+                      {frequency === 'custom' && <View style={styles.radioButtonInner} />}
+                    </View>
+                    <Text style={styles.frequencyText}>Personalizado</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {frequency === 'custom' && (
                   <View style={styles.daysContainer}>
                     {weekDays.map((day) => (
                       <TouchableOpacity
@@ -241,27 +233,26 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                       </TouchableOpacity>
                     ))}
                   </View>
-                </View>
-              )}
+                )}
+              </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Horário (opcional)</Text>
+                <Text style={styles.label}>Frequência</Text>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Ex: 08:00, Manhã, Após o almoço..."
+                  style={styles.timeInput}
                   value={time}
                   onChangeText={setTime}
-                  maxLength={30}
+                  placeholder="08:00"
                 />
               </View>
 
               <TouchableOpacity
-                style={[styles.createButton, loading && styles.createButtonDisabled]}
+                style={[styles.saveButton, loading && styles.saveButtonDisabled]}
                 onPress={handleCreateHabit}
                 disabled={loading}
               >
-                <Text style={styles.createButtonText}>
-                  {loading ? 'Criando...' : 'Criar Hábito'}
+                <Text style={styles.saveButtonText}>
+                  {loading ? 'Salvando...' : 'Salvar Hábito'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -275,7 +266,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#FFFFFF',
   },
   keyboardView: {
     flex: 1,
@@ -288,122 +279,129 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   header: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
-  title: {
-    fontSize: 28,
+  greeting: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1F2937',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
     color: '#6B7280',
-    lineHeight: 22,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 24,
   },
   form: {
     gap: 24,
   },
   inputGroup: {
-    gap: 8,
+    gap: 12,
   },
   label: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#374151',
+    color: '#1F2937',
   },
   input: {
     borderWidth: 1,
     borderColor: '#D1D5DB',
-    borderRadius: 12,
+    borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#FFFFFF',
   },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
+  timeInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#FFFFFF',
+    width: 100,
   },
-  categoriesGrid: {
+  categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 8,
   },
-  categoryCard: {
-    width: '22%',
-    aspectRatio: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+  categoryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
   },
-  categoryCardSelected: {
-    borderColor: '#667eea',
-    backgroundColor: '#F0F9FF',
-  },
-  categoryIcon: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  categoryName: {
-    fontSize: 12,
+  categoryText: {
+    fontSize: 14,
     color: '#6B7280',
-    textAlign: 'center',
+    fontWeight: '500',
   },
-  categoryNameSelected: {
-    color: '#667eea',
+  categoryTextSelected: {
+    color: '#FFFFFF',
     fontWeight: '600',
   },
   frequencyContainer: {
     gap: 12,
   },
-  frequencyCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  frequencyOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 4,
   },
-  frequencyCardSelected: {
-    borderColor: '#667eea',
-    backgroundColor: '#F0F9FF',
+  frequencyOptionSelected: {
+    // Add any selected styling if needed
   },
-  frequencyName: {
+  radioButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioButtonSelected: {
+    borderColor: '#7C3AED',
+  },
+  radioButtonInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#7C3AED',
+  },
+  frequencyText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 4,
-  },
-  frequencyNameSelected: {
-    color: '#667eea',
-  },
-  frequencyDescription: {
-    fontSize: 14,
-    color: '#6B7280',
-  },
-  frequencyDescriptionSelected: {
-    color: '#667eea',
+    color: '#1F2937',
   },
   daysContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    gap: 8,
+    marginTop: 12,
+    gap: 4,
   },
   dayButton: {
-    flex: 1,
-    paddingVertical: 12,
-    backgroundColor: '#ffffff',
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
+    justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#FFFFFF',
   },
   dayButtonSelected: {
-    backgroundColor: '#667eea',
-    borderColor: '#667eea',
+    backgroundColor: '#7C3AED',
+    borderColor: '#7C3AED',
   },
   dayButtonText: {
     fontSize: 14,
@@ -411,23 +409,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   dayButtonTextSelected: {
-    color: '#ffffff',
+    color: '#FFFFFF',
     fontWeight: '600',
   },
-  createButton: {
-    backgroundColor: '#667eea',
+  saveButton: {
+    backgroundColor: '#7C3AED',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 8,
     alignItems: 'center',
     marginTop: 8,
   },
-  createButtonDisabled: {
+  saveButtonDisabled: {
     opacity: 0.6,
   },
-  createButtonText: {
-    fontSize: 18,
+  saveButtonText: {
+    fontSize: 16,
     fontWeight: '600',
-    color: '#ffffff',
+    color: '#FFFFFF',
   },
 });
 
