@@ -2,178 +2,216 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Configuração da API - ajuste o IP conforme necessário
-const API_BASE_URL = 'http://192.168.0.60:5071';
+// Configuração base da API
+const BASE_URL = 'http://192.168.0.62:5071'; // Substitua pela URL do seu back-end
 
-// Criar instância do axios com configurações específicas
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000, // 30 segundos de timeout
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-  },
-});
-
-// Interceptor para adicionar logs de debug
-api.interceptors.request.use(
-  async (config) => {
-    console.log('🚀 Fazendo requisição para:', config.url);
-    console.log('📝 Dados:', config.data);
-    
-    const token = await AsyncStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    console.error('❌ Erro no interceptor de requisição:', error);
-    return Promise.reject(error);
-  }
-);
-
-// Interceptor para tratar respostas
-api.interceptors.response.use(
-  (response) => {
-    console.log('✅ Resposta recebida:', response.status, response.data);
-    return response;
-  },
-  async (error) => {
-    console.error('❌ Erro na resposta:', error);
-    
-    if (error.response) {
-      console.error('📊 Status:', error.response.status);
-      console.error('📋 Dados do erro:', error.response.data);
-      console.error('📝 Headers:', error.response.headers);
-    } else if (error.request) {
-      console.error('📡 Erro de rede - sem resposta do servidor');
-      console.error('🔗 Request:', error.request);
-    } else {
-      console.error('⚙️ Erro de configuração:', error.message);
-    }
-    
-    if (error.response?.status === 401) {
-      // Token expirado ou inválido
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('userInfo');
-    }
-    return Promise.reject(error);
-  }
-);
-
-// Tipos para as requisições
-export interface RegisterRequest {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  username: string;
-}
-
+// Tipos para as requisições e respostas
 export interface LoginRequest {
   email: string;
   password: string;
 }
 
-export interface AuthResponse {
-  token: string;
-  user: {
-    id: string;
-    name: string;
-    email: string;
-    username: string;
-  };
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  password: string;
 }
 
-// Função para testar conectividade
-export const testConnection = async (): Promise<boolean> => {
-  try {
-    console.log('🔍 Testando conexão com:', API_BASE_URL);
-    const response = await axios.get(`${API_BASE_URL}/health`, { timeout: 5000 });
-    console.log('✅ Conexão OK:', response.status);
-    return true;
-  } catch (error) {
-    console.error('❌ Falha na conexão:', error);
-    return false;
+export interface UserDto {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface LoggedInUserDto {
+  token: string;
+  user: UserDto;
+}
+
+export interface RegisteredUserDto {
+  id: string;
+  name: string;
+  email: string;
+  registrationDate: string;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  errors?: string[];
+}
+
+// Instância do Axios
+const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Interceptor para adicionar token de autenticação
+api.interceptors.request.use(
+  async (config) => {
+    try {
+      const token = await AsyncStorage.getItem('@HabitFlow:token');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      console.error('Erro ao recuperar token:', error);
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
   }
-};
+);
 
-// Serviços de autenticação
-export const authService = {
-  async register(data: RegisterRequest): Promise<AuthResponse> {
+// Interceptor para tratar respostas e erros
+api.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  async (error) => {
+    if (error.response?.status === 401) {
+      // Token expirado ou inválido
+      await AsyncStorage.multiRemove(['@HabitFlow:token', '@HabitFlow:user']);
+      // Aqui você pode redirecionar para a tela de login se necessário
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Classe do serviço de autenticação
+export class AuthService {
+  static async login(credentials: LoginRequest): Promise<LoggedInUserDto> {
     try {
-      console.log('📝 Tentando registrar usuário:', data.email);
-      const response = await api.post('/auth/register', data);
-      console.log('✅ Registro bem-sucedido');
+      const response = await api.post<LoggedInUserDto>('/auth/login', credentials);
+      
+      // Salvar token e dados do usuário no AsyncStorage
+      await AsyncStorage.setItem('@HabitFlow:token', response.data.token);
+      await AsyncStorage.setItem('@HabitFlow:user', JSON.stringify(response.data.user));
+      
       return response.data;
-    } catch (error) {
-      console.error('❌ Erro no registro:', error);
-      throw error;
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 401) {
+        throw new Error('Email ou senha incorretos');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Erro interno do servidor. Tente novamente mais tarde.');
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('Tempo limite da requisição. Verifique sua conexão.');
+      } else if (error.message === 'Network Error') {
+        throw new Error('Erro de conexão. Verifique sua internet.');
+      }
+      throw new Error('Erro inesperado ao fazer login');
     }
-  },
+  }
 
-  async login(data: LoginRequest): Promise<AuthResponse> {
+  static async register(userData: RegisterRequest): Promise<RegisteredUserDto> {
     try {
-      console.log('🔐 Tentando fazer login:', data.email);
-      const response = await api.post('/auth/login', data);
-      console.log('✅ Login bem-sucedido');
+      const response = await api.post<RegisteredUserDto>('/auth/register', userData);
       return response.data;
-    } catch (error) {
-      console.error('❌ Erro no login:', error);
-      throw error;
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 400) {
+        throw new Error('Dados inválidos. Verifique as informações.');
+      } else if (error.response?.status === 409) {
+        throw new Error('Este email já está cadastrado');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Erro interno do servidor. Tente novamente mais tarde.');
+      } else if (error.code === 'ECONNABORTED') {
+        throw new Error('Tempo limite da requisição. Verifique sua conexão.');
+      } else if (error.message === 'Network Error') {
+        throw new Error('Erro de conexão. Verifique sua internet.');
+      }
+      throw new Error('Erro inesperado ao criar conta');
     }
-  },
+  }
 
-  async saveAuthData(authData: AuthResponse): Promise<void> {
+  static async logout(): Promise<void> {
     try {
-      await AsyncStorage.setItem('authToken', authData.token);
-      await AsyncStorage.setItem('userInfo', JSON.stringify(authData.user));
-      console.log('💾 Dados de auth salvos');
+      await AsyncStorage.multiRemove(['@HabitFlow:token', '@HabitFlow:user']);
     } catch (error) {
-      console.error('❌ Erro ao salvar dados de auth:', error);
-      throw error;
+      console.error('Erro ao fazer logout:', error);
     }
-  },
+  }
 
-  async clearAuthData(): Promise<void> {
+  static async getCurrentUser(): Promise<UserDto | null> {
     try {
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('userInfo');
-      console.log('🗑️ Dados de auth removidos');
+      const userData = await AsyncStorage.getItem('@HabitFlow:user');
+      return userData ? JSON.parse(userData) : null;
     } catch (error) {
-      console.error('❌ Erro ao limpar dados de auth:', error);
-    }
-  },
-
-  async getAuthToken(): Promise<string | null> {
-    try {
-      return await AsyncStorage.getItem('authToken');
-    } catch (error) {
-      console.error('❌ Erro ao obter token:', error);
+      console.error('Erro ao recuperar usuário atual:', error);
       return null;
     }
-  },
+  }
 
-  async getUserInfo(): Promise<any | null> {
+  static async getToken(): Promise<string | null> {
     try {
-      const userInfo = await AsyncStorage.getItem('userInfo');
-      return userInfo ? JSON.parse(userInfo) : null;
+      return await AsyncStorage.getItem('@HabitFlow:token');
     } catch (error) {
-      console.error('❌ Erro ao obter info do usuário:', error);
+      console.error('Erro ao recuperar token:', error);
       return null;
     }
-  },
+  }
 
-  async isAuthenticated(): Promise<boolean> {
+  static async isAuthenticated(): Promise<boolean> {
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      return !!token;
+      const token = await AsyncStorage.getItem('@HabitFlow:token');
+      const user = await AsyncStorage.getItem('@HabitFlow:user');
+      return !!(token && user);
     } catch (error) {
-      console.error('❌ Erro ao verificar autenticação:', error);
+      console.error('Erro ao verificar autenticação:', error);
       return false;
     }
   }
-};
+}
+
+// Classe para outros serviços da API (exemplo para hábitos)
+export class HabitService {
+  static async getHabits(): Promise<any[]> {
+    try {
+      const response = await api.get('/habits');
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao buscar hábitos:', error);
+      throw new Error('Erro ao carregar hábitos');
+    }
+  }
+
+  static async createHabit(habitData: any): Promise<any> {
+    try {
+      const response = await api.post('/habits', habitData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao criar hábito:', error);
+      throw new Error('Erro ao criar hábito');
+    }
+  }
+
+  static async updateHabit(habitId: string, habitData: any): Promise<any> {
+    try {
+      const response = await api.put(`/habits/${habitId}`, habitData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao atualizar hábito:', error);
+      throw new Error('Erro ao atualizar hábito');
+    }
+  }
+
+  static async deleteHabit(habitId: string): Promise<void> {
+    try {
+      await api.delete(`/habits/${habitId}`);
+    } catch (error: any) {
+      console.error('Erro ao deletar hábito:', error);
+      throw new Error('Erro ao deletar hábito');
+    }
+  }
+}
 
 export default api;

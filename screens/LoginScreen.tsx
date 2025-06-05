@@ -1,3 +1,4 @@
+// screens/LoginScreen.tsx
 import React, { useState } from 'react';
 import {
   View,
@@ -9,9 +10,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
+import { AuthService, LoginRequest } from '../services/api';
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -23,18 +26,53 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('login');
 
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
   const handleLogin = async () => {
+    // Validações básicas
     if (!email.trim() || !password.trim()) {
       Alert.alert('Erro', 'Preencha todos os campos');
       return;
     }
 
+    if (!validateEmail(email.trim())) {
+      Alert.alert('Erro', 'Por favor, insira um email válido');
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert('Erro', 'A senha deve ter pelo menos 6 caracteres');
+      return;
+    }
+
     setLoading(true);
-    
-    setTimeout(() => {
+
+    try {
+      const loginData: LoginRequest = {
+        email: email.trim().toLowerCase(),
+        password: password,
+      };
+
+      const response = await AuthService.login(loginData);
+      
+      // Login bem-sucedido
+      console.log('Login realizado com sucesso:', response.user.name);
+      
+      // Navegar para a tela principal
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'MainTabs' }],
+      });
+
+    } catch (error: any) {
+      console.error('Erro no login:', error);
+      Alert.alert('Erro no Login', error.message || 'Erro inesperado ao fazer login');
+    } finally {
       setLoading(false);
-      navigation.navigate('MainTabs');
-    }, 1000);
+    }
   };
 
   const switchToRegister = () => {
@@ -63,6 +101,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
           <View style={styles.tabContainer}>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'login' && styles.activeTab]}
+              disabled={loading}
             >
               <Text style={[styles.tabText, activeTab === 'login' && styles.activeTabText]}>
                 Entrar
@@ -71,6 +110,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'register' && styles.activeTab]}
               onPress={switchToRegister}
+              disabled={loading}
             >
               <Text style={[styles.tabText, activeTab === 'register' && styles.activeTabText]}>
                 Cadastrar
@@ -81,7 +121,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
           {/* Form */}
           <View style={styles.form}>
             <TextInput
-              style={styles.input}
+              style={[styles.input, loading && styles.inputDisabled]}
               placeholder="Email"
               value={email}
               onChangeText={setEmail}
@@ -89,15 +129,19 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               autoCapitalize="none"
               autoComplete="email"
               placeholderTextColor="#C7C7CD"
+              editable={!loading}
+              autoCorrect={false}
             />
 
             <TextInput
-              style={styles.input}
+              style={[styles.input, loading && styles.inputDisabled]}
               placeholder="Senha"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
               placeholderTextColor="#C7C7CD"
+              editable={!loading}
+              autoCorrect={false}
             />
 
             <TouchableOpacity
@@ -105,9 +149,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               onPress={handleLogin}
               disabled={loading}
             >
-              <Text style={styles.loginButtonText}>
-                {loading ? 'Entrando...' : 'Entrar'}
-              </Text>
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={[styles.loginButtonText, { marginLeft: 8 }]}>
+                    Entrando...
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.loginButtonText}>Entrar</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -208,6 +259,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E5EA',
   },
+  inputDisabled: {
+    opacity: 0.6,
+  },
   loginButton: {
     backgroundColor: '#8E44AD',
     paddingVertical: 16,
@@ -222,6 +276,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
 

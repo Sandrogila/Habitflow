@@ -3,25 +3,22 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 export interface Habit {
   id: string;
   name: string;
+  description?: string;
   category: string;
-  frequency: 'daily' | 'weekly' | 'custom';
-  customDays?: number[]; // 0-6 (domingo-sábado)
-  time?: string;
-  reminder: boolean;
+  frequency: 'daily' | 'weekdays' | 'custom';
+  activeDays: number[]; // 0-6 (domingo-sábado)
+  time: string;
+  reminder?: boolean;
   completedDates: string[]; // formato YYYY-MM-DD
   streak: number;
   createdAt: string;
 }
 
 export const categories = [
-  'Saúde',
-  'Exercício',
-  'Estudos',
-  'Trabalho',
-  'Mindfulness',
-  'Relacionamentos',
-  'Hobbies',
-  'Outros'
+  { id: 'Saúde', name: 'Saúde', color: '#7C3AED' },
+  { id: 'Educação', name: 'Educação', color: '#16A34A' },
+  { id: 'Exercício', name: 'Exercício', color: '#EA580C' },
+  { id: 'Lazer', name: 'Lazer', color: '#0891B2' },
 ];
 
 interface HabitContextType {
@@ -48,22 +45,24 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       name: 'Beber 2L de água',
       category: 'Saúde',
       frequency: 'daily',
+      activeDays: [0, 1, 2, 3, 4, 5, 6],
       time: '08:00',
       reminder: true,
-      completedDates: ['2025-05-31', '2025-05-30'],
+      completedDates: ['2025-06-04', '2025-06-03'],
       streak: 7,
-      createdAt: '2025-05-24',
+      createdAt: '2025-05-28T00:00:00.000Z',
     },
     {
       id: '2',
       name: 'Exercitar-se 30min',
       category: 'Exercício',
-      frequency: 'daily',
+      frequency: 'weekdays',
+      activeDays: [1, 2, 3, 4, 5],
       time: '07:00',
       reminder: true,
-      completedDates: ['2025-05-30', '2025-05-29'],
+      completedDates: ['2025-06-03', '2025-06-02'],
       streak: 3,
-      createdAt: '2025-05-28',
+      createdAt: '2025-05-30T00:00:00.000Z',
     },
   ]);
 
@@ -71,9 +70,10 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const newHabit: Habit = {
       ...habitData,
       id: Date.now().toString(),
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
       completedDates: [],
       streak: 0,
+      reminder: habitData.reminder ?? true,
     };
     setHabits(prev => [...prev, newHabit]);
   };
@@ -96,15 +96,32 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           ? habit.completedDates.filter(d => d !== date)
           : [...habit.completedDates, date];
         
-        // Calcular streak
-        const sortedDates = newCompletedDates.sort();
+        // Calcular streak - contar dias consecutivos até hoje
+        const sortedDates = newCompletedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
         let streak = 0;
         const today = new Date();
-        let currentDate = new Date(today);
+        let checkDate = new Date(today);
         
-        while (sortedDates.includes(currentDate.toISOString().split('T')[0])) {
-          streak++;
-          currentDate.setDate(currentDate.getDate() - 1);
+        // Verificar quantos dias consecutivos foram completados até hoje
+        while (true) {
+          const dateStr = checkDate.toISOString().split('T')[0];
+          const dayOfWeek = checkDate.getDay();
+          
+          // Verificar se este hábito deveria ser feito neste dia
+          const shouldBeActive = habit.activeDays.includes(dayOfWeek);
+          
+          if (shouldBeActive) {
+            if (sortedDates.includes(dateStr)) {
+              streak++;
+            } else {
+              break; // Quebrou a sequência
+            }
+          }
+          
+          checkDate.setDate(checkDate.getDate() - 1);
+          
+          // Evitar loop infinito - máximo 100 dias
+          if (streak > 100) break;
         }
 
         return {
@@ -121,12 +138,7 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const dayOfWeek = new Date(date).getDay();
     
     return habits.filter(habit => {
-      if (habit.frequency === 'daily') return true;
-      if (habit.frequency === 'weekly') return dayOfWeek === 1; // Segunda-feira
-      if (habit.frequency === 'custom' && habit.customDays) {
-        return habit.customDays.includes(dayOfWeek);
-      }
-      return false;
+      return habit.activeDays.includes(dayOfWeek);
     });
   };
 
@@ -134,8 +146,11 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const today = new Date().toISOString().split('T')[0];
     const startOfWeek = new Date();
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
+    
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
+    const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
 
     const todayHabits = getHabitsForDate(today);
     const completedToday = todayHabits.filter(habit => 
@@ -147,11 +162,10 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     habits.forEach(habit => {
       habit.completedDates.forEach(date => {
-        const completionDate = new Date(date);
-        if (completionDate >= startOfWeek) {
+        if (date >= startOfWeekStr) {
           totalCompletionsThisWeek++;
         }
-        if (completionDate >= startOfMonth) {
+        if (date >= startOfMonthStr) {
           totalCompletionsThisMonth++;
         }
       });

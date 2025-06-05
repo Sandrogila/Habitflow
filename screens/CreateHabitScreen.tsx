@@ -10,28 +10,24 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
-import { useHabits } from '../context/HabitContext';
+import { useHabits, categories } from '../context/HabitContext';
 
 type CreateHabitScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateHabit'>;
 };
 
-const categories = [
-  { id: 'Saúde', name: 'Saúde', color: '#7C3AED' },
-  { id: 'Educação', name: 'Educação', color: '#16A34A' },
-  { id: 'Exercício', name: 'Exercício', color: '#EA580C' },
-  { id: 'Lazer', name: 'Lazer', color: '#0891B2' },
-];
-
 const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => {
   const { addHabit } = useHabits();
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [frequency, setFrequency] = useState('daily');
   const [time, setTime] = useState('08:00');
+  const [reminder, setReminder] = useState(true);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -39,9 +35,9 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
     { id: 1, name: 'S', fullName: 'Segunda' },
     { id: 2, name: 'T', fullName: 'Terça' },
     { id: 3, name: 'Q', fullName: 'Quarta' },
-    { id: 4, name: 'Q', fullName: 'Quinta' },
-    { id: 5, name: 'S', fullName: 'Sexta' },
-    { id: 6, name: 'S', fullName: 'Sábado' },
+    { id: 4, name: 'Qu', fullName: 'Quinta' },
+    { id: 5, name: 'Se', fullName: 'Sexta' },
+    { id: 6, name: 'Sá', fullName: 'Sábado' },
     { id: 0, name: 'D', fullName: 'Domingo' },
   ];
 
@@ -53,7 +49,13 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
     );
   };
 
+  const validateTimeFormat = (timeStr: string): boolean => {
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    return timeRegex.test(timeStr);
+  };
+
   const handleCreateHabit = async () => {
+    // Validações
     if (!name.trim()) {
       Alert.alert('Erro', 'Digite o nome do hábito');
       return;
@@ -66,6 +68,11 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
 
     if (frequency === 'custom' && selectedDays.length === 0) {
       Alert.alert('Erro', 'Selecione pelo menos um dia da semana');
+      return;
+    }
+
+    if (!validateTimeFormat(time)) {
+      Alert.alert('Erro', 'Digite um horário válido (formato HH:MM)');
       return;
     }
 
@@ -84,19 +91,18 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         case 'custom':
           activeDays = selectedDays;
           break;
+        default:
+          activeDays = [0, 1, 2, 3, 4, 5, 6];
       }
 
       const newHabit = {
-        id: Date.now().toString(),
         name: name.trim(),
-        description: '',
+        description: description.trim(),
         category,
-        frequency,
+        frequency: frequency as 'daily' | 'weekdays' | 'custom',
         time: time.trim(),
         activeDays,
-        streak: 0,
-        completedDates: [],
-        createdAt: new Date().toISOString(),
+        reminder,
       };
 
       addHabit(newHabit);
@@ -105,7 +111,8 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível criar o hábito');
+      console.error('Erro ao criar hábito:', error);
+      Alert.alert('Erro', 'Não foi possível criar o hábito. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -117,7 +124,10 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.content}>
             <View style={styles.header}>
               <Text style={styles.greeting}>Olá, Délcio!</Text>
@@ -135,6 +145,21 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                   value={name}
                   onChangeText={setName}
                   maxLength={50}
+                  returnKeyType="next"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Descrição (Opcional)</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Descreva seu hábito..."
+                  value={description}
+                  onChangeText={setDescription}
+                  maxLength={200}
+                  multiline
+                  numberOfLines={3}
+                  returnKeyType="next"
                 />
               </View>
 
@@ -149,6 +174,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                         category === cat.id && { backgroundColor: cat.color }
                       ]}
                       onPress={() => setCategory(cat.id)}
+                      activeOpacity={0.7}
                     >
                       <Text style={[
                         styles.categoryText,
@@ -170,6 +196,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                       frequency === 'daily' && styles.frequencyOptionSelected
                     ]}
                     onPress={() => setFrequency('daily')}
+                    activeOpacity={0.7}
                   >
                     <View style={[
                       styles.radioButton,
@@ -186,6 +213,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                       frequency === 'weekdays' && styles.frequencyOptionSelected
                     ]}
                     onPress={() => setFrequency('weekdays')}
+                    activeOpacity={0.7}
                   >
                     <View style={[
                       styles.radioButton,
@@ -202,6 +230,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                       frequency === 'custom' && styles.frequencyOptionSelected
                     ]}
                     onPress={() => setFrequency('custom')}
+                    activeOpacity={0.7}
                   >
                     <View style={[
                       styles.radioButton,
@@ -223,6 +252,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                           selectedDays.includes(day.id) && styles.dayButtonSelected
                         ]}
                         onPress={() => toggleDay(day.id)}
+                        activeOpacity={0.7}
                       >
                         <Text style={[
                           styles.dayButtonText,
@@ -237,19 +267,37 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Frequência</Text>
+                <Text style={styles.label}>Horário</Text>
                 <TextInput
                   style={styles.timeInput}
                   value={time}
                   onChangeText={setTime}
                   placeholder="08:00"
+                  keyboardType="numeric"
+                  maxLength={5}
                 />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <View style={styles.switchContainer}>
+                  <Text style={styles.label}>Lembrete</Text>
+                  <Switch
+                    value={reminder}
+                    onValueChange={setReminder}
+                    trackColor={{ false: '#D1D5DB', true: '#C4B5FD' }}
+                    thumbColor={reminder ? '#7C3AED' : '#9CA3AF'}
+                  />
+                </View>
+                <Text style={styles.switchDescription}>
+                  Receba notificações no horário definido
+                </Text>
               </View>
 
               <TouchableOpacity
                 style={[styles.saveButton, loading && styles.saveButtonDisabled]}
                 onPress={handleCreateHabit}
                 disabled={loading}
+                activeOpacity={0.8}
               >
                 <Text style={styles.saveButtonText}>
                   {loading ? 'Salvando...' : 'Salvar Hábito'}
@@ -316,6 +364,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     backgroundColor: '#FFFFFF',
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
   },
   timeInput: {
     borderWidth: 1,
@@ -411,6 +463,16 @@ const styles = StyleSheet.create({
   dayButtonTextSelected: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  switchContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  switchDescription: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: -8,
   },
   saveButton: {
     backgroundColor: '#7C3AED',
