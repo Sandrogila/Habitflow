@@ -2,9 +2,10 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Configuração base da API
-const BASE_URL = 'http://192.168.0.62:5071'; // Substitua pela URL do seu back-end
-
+// Configuração base da API - ATUALIZE ESTAS URLs
+const BASE_URL = process.env.NODE_ENV === 'development' 
+  ? 'http://127.0.0.1:5071'  // Para desenvolvimento local
+  : 'http://192.168.0.62:5071'; // Para dispositivos na rede
 // Tipos para as requisições e respostas
 export interface LoginRequest {
   email: string;
@@ -45,7 +46,7 @@ export interface ApiResponse<T> {
 // Instância do Axios
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000,
+  timeout: 60000,
   headers: {
     'Content-Type': 'application/json',
   },
