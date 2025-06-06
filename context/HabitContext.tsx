@@ -1,32 +1,47 @@
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { HabitService, CategoryService, HabitDto, CategoryDto, CreateHabitDto, MarkHabitAsDoneDto, MarkHabitAsNotDoneDto } from '../services/api';
 
 export interface Habit {
   id: string;
   name: string;
   description?: string;
-  category: string;
-  frequency: 'daily' | 'weekdays' | 'custom';
-  activeDays: number[]; // 0-6 (domingo-sábado)
-  time: string;
-  reminder?: boolean;
-  completedDates: string[]; // formato YYYY-MM-DD
-  streak: number;
+  category?: string;
+  categoryId?: string;
+  frequency: string;
+  target?: string;
+  color: string;
+  createdAt: string;
+  records?: HabitRecord[];
+}
+
+export interface HabitRecord {
+  id: string;
+  habitId: string;
+  date: string;
+  completed: boolean;
+  note?: string;
+  achievedValue?: number;
   createdAt: string;
 }
 
-export const categories = [
-  { id: 'Saúde', name: 'Saúde', color: '#7C3AED' },
-  { id: 'Educação', name: 'Educação', color: '#16A34A' },
-  { id: 'Exercício', name: 'Exercício', color: '#EA580C' },
-  { id: 'Lazer', name: 'Lazer', color: '#0891B2' },
-];
+export interface Category {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+}
 
 interface HabitContextType {
   habits: Habit[];
-  addHabit: (habit: Omit<Habit, 'id' | 'createdAt' | 'completedDates' | 'streak'>) => void;
-  updateHabit: (id: string, updates: Partial<Habit>) => void;
-  deleteHabit: (id: string) => void;
-  toggleHabitCompletion: (id: string, date: string) => void;
+  categories: Category[];
+  loading: boolean;
+  error: string | null;
+  loadHabits: () => Promise<void>;
+  loadCategories: () => Promise<void>;
+  addHabit: (habit: CreateHabitDto) => Promise<void>;
+  updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
+  deleteHabit: (id: string) => Promise<void>;
+  toggleHabitCompletion: (id: string, date: string) => Promise<void>;
   getHabitsForDate: (date: string) => Habit[];
   getHabitStats: () => {
     totalHabits: number;
@@ -39,134 +54,270 @@ interface HabitContextType {
 const HabitContext = createContext<HabitContextType | undefined>(undefined);
 
 export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [habits, setHabits] = useState<Habit[]>([
-    {
-      id: '1',
-      name: 'Beber 2L de água',
-      category: 'Saúde',
-      frequency: 'daily',
-      activeDays: [0, 1, 2, 3, 4, 5, 6],
-      time: '08:00',
-      reminder: true,
-      completedDates: ['2025-06-04', '2025-06-03'],
-      streak: 7,
-      createdAt: '2025-05-28T00:00:00.000Z',
-    },
-    {
-      id: '2',
-      name: 'Exercitar-se 30min',
-      category: 'Exercício',
-      frequency: 'weekdays',
-      activeDays: [1, 2, 3, 4, 5],
-      time: '07:00',
-      reminder: true,
-      completedDates: ['2025-06-03', '2025-06-02'],
-      streak: 3,
-      createdAt: '2025-05-30T00:00:00.000Z',
-    },
-  ]);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const addHabit = (habitData: Omit<Habit, 'id' | 'createdAt' | 'completedDates' | 'streak'>) => {
-    const newHabit: Habit = {
-      ...habitData,
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      completedDates: [],
-      streak: 0,
-      reminder: habitData.reminder ?? true,
+  // Transformar dados da API para o formato local
+  const transformHabitFromApi = (apiHabit: HabitDto): Habit => {
+    return {
+      id: apiHabit.id,
+      name: apiHabit.name,
+      description: apiHabit.description,
+      category: apiHabit.category?.name,
+      categoryId: apiHabit.categoryId,
+      frequency: apiHabit.frequency,
+      target: apiHabit.target,
+      color: apiHabit.color,
+      createdAt: apiHabit.createdAt,
+      records: apiHabit.records?.map(record => ({
+        id: record.id,
+        habitId: record.habitId,
+        date: record.date,
+        completed: record.completed,
+        note: record.note,
+        achievedValue: record.achievedValue,
+        createdAt: record.createdAt,
+      })),
     };
-    setHabits(prev => [...prev, newHabit]);
   };
 
-  const updateHabit = (id: string, updates: Partial<Habit>) => {
-    setHabits(prev => prev.map(habit => 
-      habit.id === id ? { ...habit, ...updates } : habit
-    ));
+  // Transformar dados da API para categorias
+  const transformCategoryFromApi = (apiCategory: CategoryDto): Category => {
+    return {
+      id: apiCategory.id,
+      name: apiCategory.name,
+      description: apiCategory.description,
+      color: apiCategory.color,
+    };
   };
 
-  const deleteHabit = (id: string) => {
-    setHabits(prev => prev.filter(habit => habit.id !== id));
+  const loadHabits = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const habitsData = await HabitService.getHabits();
+      const transformedHabits = habitsData.map(transformHabitFromApi);
+      setHabits(transformedHabits);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar hábitos');
+      console.error('Erro ao carregar hábitos:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const toggleHabitCompletion = (id: string, date: string) => {
-    setHabits(prev => prev.map(habit => {
-      if (habit.id === id) {
-        const isCompleted = habit.completedDates.includes(date);
-        const newCompletedDates = isCompleted
-          ? habit.completedDates.filter(d => d !== date)
-          : [...habit.completedDates, date];
-        
-        // Calcular streak - contar dias consecutivos até hoje
-        const sortedDates = newCompletedDates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-        let streak = 0;
-        const today = new Date();
-        let checkDate = new Date(today);
-        
-        // Verificar quantos dias consecutivos foram completados até hoje
-        while (true) {
-          const dateStr = checkDate.toISOString().split('T')[0];
-          const dayOfWeek = checkDate.getDay();
-          
-          // Verificar se este hábito deveria ser feito neste dia
-          const shouldBeActive = habit.activeDays.includes(dayOfWeek);
-          
-          if (shouldBeActive) {
-            if (sortedDates.includes(dateStr)) {
-              streak++;
-            } else {
-              break; // Quebrou a sequência
-            }
-          }
-          
-          checkDate.setDate(checkDate.getDate() - 1);
-          
-          // Evitar loop infinito - máximo 100 dias
-          if (streak > 100) break;
+  const loadCategories = async () => {
+    try {
+      setError(null);
+      const categoriesData = await CategoryService.getCategories();
+      const transformedCategories = categoriesData.map(transformCategoryFromApi);
+      setCategories(transformedCategories);
+    } catch (err: any) {
+      setError(err.message || 'Erro ao carregar categorias');
+      console.error('Erro ao carregar categorias:', err);
+    }
+  };
+
+  const addHabit = async (habitData: CreateHabitDto) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Validar e limpar dados antes de enviar
+      const cleanedHabitData: CreateHabitDto = {
+        name: habitData.name.trim(),
+        description: habitData.description && habitData.description.trim() ? habitData.description.trim() : undefined,
+        categoryId: habitData.categoryId || undefined,
+        frequency: habitData.frequency,
+        target: habitData.target || undefined,
+        color: habitData.color,
+      };
+
+      // Remover campos undefined para evitar envio de valores nulos
+      Object.keys(cleanedHabitData).forEach(key => {
+        if (cleanedHabitData[key as keyof CreateHabitDto] === undefined) {
+          delete cleanedHabitData[key as keyof CreateHabitDto];
         }
+      });
 
-        return {
-          ...habit,
-          completedDates: newCompletedDates,
-          streak,
-        };
-      }
-      return habit;
-    }));
+      console.log('Dados limpos a serem enviados:', cleanedHabitData);
+      
+      const newHabit = await HabitService.createHabit(cleanedHabitData);
+      const transformedHabit = transformHabitFromApi(newHabit);
+      setHabits(prev => [...prev, transformedHabit]);
+    } catch (err: any) {
+      console.error('Erro detalhado ao criar hábito:', err);
+      setError(err.message || 'Erro ao criar hábito');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getHabitsForDate = (date: string) => {
-    const dayOfWeek = new Date(date).getDay();
+  const updateHabit = async (id: string, updates: Partial<Habit>) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const updateData = {
+        name: updates.name?.trim() || '',
+        description: updates.description?.trim() || undefined,
+        categoryId: updates.categoryId || undefined,
+        frequency: updates.frequency || '',
+        target: updates.target || undefined,
+        color: updates.color || '',
+      };
+      
+      // Remover campos undefined
+      Object.keys(updateData).forEach(key => {
+        if (updateData[key as keyof typeof updateData] === undefined) {
+          delete updateData[key as keyof typeof updateData];
+        }
+      });
+      
+      const updatedHabit = await HabitService.updateHabit(id, updateData);
+      const transformedHabit = transformHabitFromApi(updatedHabit);
+      
+      setHabits(prev => prev.map(habit => 
+        habit.id === id ? transformedHabit : habit
+      ));
+    } catch (err: any) {
+      setError(err.message || 'Erro ao atualizar hábito');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteHabit = async (id: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await HabitService.deleteHabit(id);
+      setHabits(prev => prev.filter(habit => habit.id !== id));
+    } catch (err: any) {
+      setError(err.message || 'Erro ao deletar hábito');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Substitua a função toggleHabitCompletion no seu HabitContext por esta versão corrigida:
+
+const toggleHabitCompletion = async (id: string, date: string) => {
+  try {
+    setError(null);
+    const habit = habits.find(h => h.id === id);
+    if (!habit) {
+      console.error('Hábito não encontrado:', id);
+      return;
+    }
+
+    // Verificar se já existe um registro para esta data
+    const existingRecord = habit.records?.find(record => record.date === date);
+    const isCurrentlyCompleted = existingRecord?.completed || false;
+
+    console.log('Estado atual do hábito:', {
+      habitId: id,
+      date,
+      isCurrentlyCompleted,
+      existingRecord
+    });
+
+    // CORREÇÃO: Criar um DateTime completo para a data
+    const dateTime = new Date(date + 'T12:00:00.000Z').toISOString();
+
+    // Preparar dados para envio - FORMATO CORRETO
+    const requestData = {
+      date: dateTime, // Usar formato DateTime completo
+      note: isCurrentlyCompleted ? "desmarcado" : "feito",
+      achievedValue: 1
+    };
+
+    console.log('Dados a serem enviados (corrigidos):', requestData);
+
+    if (isCurrentlyCompleted) {
+      // Marcar como não feito
+      console.log('Marcando hábito como não feito');
+      await HabitService.markHabitAsNotDone(id, requestData);
+    } else {
+      // Marcar como feito
+      console.log('Marcando hábito como feito');
+      await HabitService.markHabitAsDone(id, requestData);
+    }
+
+    // Recarregar hábitos para obter os dados atualizados
+    await loadHabits();
     
+    console.log('Hábito atualizado com sucesso');
+  } catch (err: any) {
+    console.error('Erro detalhado ao atualizar status do hábito:', err);
+    console.error('Response:', err.response?.data);
+    
+    // Melhor tratamento de erros
+    let errorMessage = 'Erro ao atualizar status do hábito';
+    
+    if (err.response?.data?.message) {
+      errorMessage = err.response.data.message;
+    } else if (err.response?.status === 400) {
+      errorMessage = 'Dados inválidos - verifique o formato da data e campos obrigatórios';
+    } else if (err.response?.status === 404) {
+      errorMessage = 'Hábito não encontrado';
+    } else if (err.response?.status === 401) {
+      errorMessage = 'Não autorizado - faça login novamente';
+    }
+    
+    setError(errorMessage);
+    throw new Error(errorMessage);
+  }
+};
+
+  const getHabitsForDate = (date: string): Habit[] => {
+    // Por enquanto, retorna todos os hábitos
+    // A lógica de dias específicos pode ser implementada baseada na frequência
     return habits.filter(habit => {
-      return habit.activeDays.includes(dayOfWeek);
+      // Aqui você pode adicionar lógica para filtrar por frequência
+      // Por exemplo, se frequency for 'daily', sempre retorna
+      // Se for 'weekdays', verificar se é dia útil, etc.
+      return true;
     });
   };
 
   const getHabitStats = () => {
     const today = new Date().toISOString().split('T')[0];
+    const todayHabits = getHabitsForDate(today);
+    
+    // Contar hábitos completados hoje
+    const completedToday = todayHabits.filter(habit => {
+      const todayRecord = habit.records?.find(record => record.date === today);
+      return todayRecord?.completed || false;
+    }).length;
+
+    // Calcular estatísticas da semana
     const startOfWeek = new Date();
     startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
     const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
     
+    // Calcular estatísticas do mês
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
-
-    const todayHabits = getHabitsForDate(today);
-    const completedToday = todayHabits.filter(habit => 
-      habit.completedDates.includes(today)
-    ).length;
 
     let totalCompletionsThisWeek = 0;
     let totalCompletionsThisMonth = 0;
 
     habits.forEach(habit => {
-      habit.completedDates.forEach(date => {
-        if (date >= startOfWeekStr) {
-          totalCompletionsThisWeek++;
-        }
-        if (date >= startOfMonthStr) {
-          totalCompletionsThisMonth++;
+      habit.records?.forEach(record => {
+        if (record.completed) {
+          if (record.date >= startOfWeekStr) {
+            totalCompletionsThisWeek++;
+          }
+          if (record.date >= startOfMonthStr) {
+            totalCompletionsThisMonth++;
+          }
         }
       });
     });
@@ -179,9 +330,20 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     };
   };
 
+  // Carregar dados iniciais
+  useEffect(() => {
+    loadHabits();
+    loadCategories();
+  }, []);
+
   return (
     <HabitContext.Provider value={{
       habits,
+      categories,
+      loading,
+      error,
+      loadHabits,
+      loadCategories,
       addHabit,
       updateHabit,
       deleteHabit,

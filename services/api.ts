@@ -5,7 +5,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Configuração base da API - ATUALIZE ESTAS URLs
 const BASE_URL = process.env.NODE_ENV === 'development' 
   ? 'http://127.0.0.1:5071'  // Para desenvolvimento local
-  : 'http://192.168.0.62:5071'; // Para dispositivos na rede
+  : 'http://192.168.0.63:5071'; // Para dispositivos na rede
+
 // Tipos para as requisições e respostas
 export interface LoginRequest {
   email: string;
@@ -41,6 +42,81 @@ export interface ApiResponse<T> {
   data?: T;
   message?: string;
   errors?: string[];
+}
+
+// Tipos para Categorias
+export interface CategoryDto {
+  id: string;
+  name: string;
+  description?: string;
+  color: string;
+}
+
+export interface CreateCategoryDto {
+  name: string;
+  description?: string;
+  color: string;
+}
+
+export interface UpdateCategoryDto {
+  name: string;
+  description?: string;
+  color: string;
+}
+
+// Tipos para Hábitos
+export interface HabitDto {
+  id: string;
+  name: string;
+  description?: string;
+  categoryId?: string;
+  category?: CategoryDto;
+  frequency: string;
+  target?: string;
+  color: string;
+  createdAt: string;
+  records?: HabitRecordDto[];
+}
+
+export interface CreateHabitDto {
+  name: string;
+  description?: string;
+  categoryId?: string;
+  frequency: string;
+  target?: string;
+  color: string;
+}
+
+export interface UpdateHabitDto {
+  name: string;
+  description?: string;
+  categoryId?: string;
+  frequency: string;
+  target?: string;
+  color: string;
+}
+
+// Tipos para Registros de Hábitos
+export interface HabitRecordDto {
+  id: string;
+  habitId: string;
+  date: string;
+  completed: boolean;
+  note?: string;
+  achievedValue?: number; // Adicionado campo que estava faltando
+  createdAt: string;
+}
+
+export interface MarkHabitAsDoneDto {
+  date: string;
+  note?: string;
+  achievedValue?: number; // Adicionado campo obrigatório
+}
+
+export interface MarkHabitAsNotDoneDto {
+  date: string;
+  note?: string;
+  achievedValue?: number; // Adicionado para consistência
 }
 
 // Instância do Axios
@@ -173,11 +249,53 @@ export class AuthService {
   }
 }
 
-// Classe para outros serviços da API (exemplo para hábitos)
-export class HabitService {
-  static async getHabits(): Promise<any[]> {
+// Classe para serviços de Categorias
+export class CategoryService {
+  static async getCategories(): Promise<CategoryDto[]> {
     try {
-      const response = await api.get('/habits');
+      const response = await api.get<CategoryDto[]>('/categories');
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao buscar categorias:', error);
+      throw new Error('Erro ao carregar categorias');
+    }
+  }
+
+  static async createCategory(categoryData: CreateCategoryDto): Promise<CategoryDto> {
+    try {
+      const response = await api.post<CategoryDto>('/categories', categoryData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao criar categoria:', error);
+      throw new Error('Erro ao criar categoria');
+    }
+  }
+
+  static async updateCategory(categoryId: string, categoryData: UpdateCategoryDto): Promise<CategoryDto> {
+    try {
+      const response = await api.put<CategoryDto>(`/categories/${categoryId}`, categoryData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao atualizar categoria:', error);
+      throw new Error('Erro ao atualizar categoria');
+    }
+  }
+
+  static async deleteCategory(categoryId: string): Promise<void> {
+    try {
+      await api.delete(`/categories/${categoryId}`);
+    } catch (error: any) {
+      console.error('Erro ao deletar categoria:', error);
+      throw new Error('Erro ao deletar categoria');
+    }
+  }
+}
+
+// Classe para serviços de Hábitos
+export class HabitService {
+  static async getHabits(): Promise<HabitDto[]> {
+    try {
+      const response = await api.get<HabitDto[]>('/habits');
       return response.data;
     } catch (error: any) {
       console.error('Erro ao buscar hábitos:', error);
@@ -185,9 +303,9 @@ export class HabitService {
     }
   }
 
-  static async createHabit(habitData: any): Promise<any> {
+  static async createHabit(habitData: CreateHabitDto): Promise<HabitDto> {
     try {
-      const response = await api.post('/habits', habitData);
+      const response = await api.post<HabitDto>('/habits', habitData);
       return response.data;
     } catch (error: any) {
       console.error('Erro ao criar hábito:', error);
@@ -195,9 +313,9 @@ export class HabitService {
     }
   }
 
-  static async updateHabit(habitId: string, habitData: any): Promise<any> {
+  static async updateHabit(habitId: string, habitData: UpdateHabitDto): Promise<HabitDto> {
     try {
-      const response = await api.put(`/habits/${habitId}`, habitData);
+      const response = await api.put<HabitDto>(`/habits/${habitId}`, habitData);
       return response.data;
     } catch (error: any) {
       console.error('Erro ao atualizar hábito:', error);
@@ -213,6 +331,98 @@ export class HabitService {
       throw new Error('Erro ao deletar hábito');
     }
   }
+
+// Substitua as funções markHabitAsDone e markHabitAsNotDone no seu api.ts por estas versões corrigidas:
+
+static async markHabitAsDone(habitId: string, data: MarkHabitAsDoneDto): Promise<HabitRecordDto> {
+  try {
+    // Validar e formatar dados
+    if (!data.date) {
+      throw new Error('Data é obrigatória');
+    }
+
+    // Garantir que a data está no formato ISO correto
+    let formattedDate: string;
+    try {
+      formattedDate = new Date(data.date).toISOString();
+    } catch (dateError) {
+      throw new Error('Formato de data inválido');
+    }
+
+    const requestData = {
+      date: formattedDate,
+      note: data.note || "feito",
+      achievedValue: data.achievedValue || 1
+    };
+
+    console.log('Dados enviados para markHabitAsDone:', requestData);
+    
+    const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/done`, requestData);
+    return response.data;
+  } catch (error: any) {
+    console.error('Erro ao marcar hábito como feito:', error);
+    console.error('Response data:', error.response?.data);
+    console.error('Status:', error.response?.status);
+    
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    } else if (error.response?.status === 400) {
+      const errorDetails = error.response.data?.errors || error.response.data;
+      console.error('Detalhes do erro 400:', errorDetails);
+      throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
+    } else if (error.response?.status === 404) {
+      throw new Error('Hábito não encontrado');
+    } else if (error.response?.status === 401) {
+      throw new Error('Não autorizado - faça login novamente');
+    }
+    throw new Error('Erro ao marcar hábito como feito');
+  }
 }
+
+static async markHabitAsNotDone(habitId: string, data: MarkHabitAsNotDoneDto): Promise<HabitRecordDto> {
+  try {
+    // Validar e formatar dados
+    if (!data.date) {
+      throw new Error('Data é obrigatória');
+    }
+
+    // Garantir que a data está no formato ISO correto
+    let formattedDate: string;
+    try {
+      formattedDate = new Date(data.date).toISOString();
+    } catch (dateError) {
+      throw new Error('Formato de data inválido');
+    }
+
+    const requestData = {
+      date: formattedDate,
+      note: data.note || "desmarcado",
+      achievedValue: data.achievedValue || 0
+    };
+
+    console.log('Dados enviados para markHabitAsNotDone:', requestData);
+    
+    const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/not-done`, requestData);
+    return response.data;
+  } catch (error: any) {
+    console.error('Erro ao marcar hábito como não feito:', error);
+    console.error('Response data:', error.response?.data);
+    console.error('Status:', error.response?.status);
+    
+    if (error.response?.data?.message) {
+      throw new Error(error.response.data.message);
+    } else if (error.response?.status === 400) {
+      const errorDetails = error.response.data?.errors || error.response.data;
+      console.error('Detalhes do erro 400:', errorDetails);
+      throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
+    } else if (error.response?.status === 404) {
+      throw new Error('Hábito não encontrado');
+    } else if (error.response?.status === 401) {
+      throw new Error('Não autorizado - faça login novamente');
+    }
+    throw new Error('Erro ao marcar hábito como não feito');
+  }
+}
+  }
 
 export default api;

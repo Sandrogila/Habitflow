@@ -1,3 +1,4 @@
+// CreateHabitScreen.tsx - Versão corrigida
 import React, { useState } from 'react';
 import {
   View,
@@ -10,113 +11,160 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Switch,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
-import { useHabits, categories } from '../context/HabitContext';
+import { useHabits } from '../context/HabitContext';
+import { CreateHabitDto } from '@/services/api';
 
 type CreateHabitScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'CreateHabit'>;
 };
 
 const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => {
-  const { addHabit } = useHabits();
+  const { addHabit, categories, loading: contextLoading } = useHabits();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
+  const [categoryId, setCategoryId] = useState('');
   const [frequency, setFrequency] = useState('daily');
-  const [time, setTime] = useState('08:00');
-  const [reminder, setReminder] = useState(true);
-  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [target, setTarget] = useState('');
+  const [color, setColor] = useState('#7C3AED');
   const [loading, setLoading] = useState(false);
 
-  const weekDays = [
-    { id: 1, name: 'S', fullName: 'Segunda' },
-    { id: 2, name: 'T', fullName: 'Terça' },
-    { id: 3, name: 'Q', fullName: 'Quarta' },
-    { id: 4, name: 'Qu', fullName: 'Quinta' },
-    { id: 5, name: 'Se', fullName: 'Sexta' },
-    { id: 6, name: 'Sá', fullName: 'Sábado' },
-    { id: 0, name: 'D', fullName: 'Domingo' },
+  // Cores predefinidas para os hábitos
+  const predefinedColors = [
+    '#7C3AED', // Purple
+    '#2563EB', // Blue
+    '#16A34A', // Green
+    '#DC2626', // Red
+    '#EA580C', // Orange
+    '#CA8A04', // Yellow
+    '#7C2D12', // Brown
+    '#1F2937', // Gray
   ];
 
-  const toggleDay = (dayId: number) => {
-    setSelectedDays(prev => 
-      prev.includes(dayId) 
-        ? prev.filter(id => id !== dayId)
-        : [...prev, dayId]
-    );
-  };
+  // Opções de frequência válidas
+  const frequencyOptions = [
+    { value: 'daily', label: 'Todos os dias' },
+    { value: 'weekly', label: 'Semanal' },
+    { value: 'monthly', label: 'Mensal' },
+    { value: 'weekdays', label: 'Dias úteis' },
+    { value: 'weekends', label: 'Fins de semana' },
+  ];
 
-  const validateTimeFormat = (timeStr: string): boolean => {
-    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    return timeRegex.test(timeStr);
+  const validateForm = (): boolean => {
+    if (!name.trim()) {
+      Alert.alert('Erro', 'Digite o nome do hábito');
+      return false;
+    }
+
+    if (name.trim().length < 3) {
+      Alert.alert('Erro', 'O nome do hábito deve ter pelo menos 3 caracteres');
+      return false;
+    }
+
+    if (!frequency) {
+      Alert.alert('Erro', 'Selecione uma frequência');
+      return false;
+    }
+
+    // Validar se a categoria existe se foi selecionada
+    if (categoryId && !categories.find(cat => cat.id === categoryId)) {
+      Alert.alert('Erro', 'Categoria selecionada não é válida');
+      return false;
+    }
+
+    return true;
   };
 
   const handleCreateHabit = async () => {
-    // Validações
-    if (!name.trim()) {
-      Alert.alert('Erro', 'Digite o nome do hábito');
-      return;
-    }
-
-    if (!category) {
-      Alert.alert('Erro', 'Selecione uma categoria');
-      return;
-    }
-
-    if (frequency === 'custom' && selectedDays.length === 0) {
-      Alert.alert('Erro', 'Selecione pelo menos um dia da semana');
-      return;
-    }
-
-    if (!validateTimeFormat(time)) {
-      Alert.alert('Erro', 'Digite um horário válido (formato HH:MM)');
+    if (!validateForm()) {
       return;
     }
 
     setLoading(true);
 
     try {
-      let activeDays: number[] = [];
-      
-      switch (frequency) {
-        case 'daily':
-          activeDays = [0, 1, 2, 3, 4, 5, 6];
-          break;
-        case 'weekdays':
-          activeDays = [1, 2, 3, 4, 5];
-          break;
-        case 'custom':
-          activeDays = selectedDays;
-          break;
-        default:
-          activeDays = [0, 1, 2, 3, 4, 5, 6];
-      }
-
-      const newHabit = {
+      // Preparar dados do hábito com validações
+      const habitData = {
         name: name.trim(),
-        description: description.trim(),
-        category,
-        frequency: frequency as 'daily' | 'weekdays' | 'custom',
-        time: time.trim(),
-        activeDays,
-        reminder,
+        description: description.trim() || undefined,
+        categoryId: categoryId || undefined,
+        frequency: frequency,
+        target: target.trim() || undefined,
+        color: color,
       };
 
-      addHabit(newHabit);
+      // Log para debug
+      console.log('=== DADOS SENDO ENVIADOS ===');
+      console.log('Dados originais:', habitData);
+      
+      // Remover campos undefined para evitar problemas na API
+     const cleanedData = Object.fromEntries(
+       Object.entries(habitData).filter(([_, value]) => value !== undefined)
+     ) as unknown as CreateHabitDto;
+
+      
+      console.log('Dados limpos:', cleanedData);
+      console.log('Categorias disponíveis:', categories.map(c => ({ id: c.id, name: c.name })));
+      console.log('================================');
+
+      await addHabit(cleanedData);
       
       Alert.alert('Sucesso', 'Hábito criado com sucesso!', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
-    } catch (error) {
-      console.error('Erro ao criar hábito:', error);
-      Alert.alert('Erro', 'Não foi possível criar o hábito. Tente novamente.');
+    } catch (error: any) {
+      console.error('=== ERRO AO CRIAR HÁBITO ===');
+      console.error('Erro completo:', error);
+      
+      if (error.response) {
+        console.error('Status:', error.response.status);
+        console.error('Data:', error.response.data);
+        console.error('Headers:', error.response.headers);
+      }
+      console.error('===============================');
+      
+      let errorMessage = 'Não foi possível criar o hábito. Tente novamente.';
+      
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.errors) {
+        if (Array.isArray(error.response.data.errors)) {
+          errorMessage = error.response.data.errors.join(', ');
+        } else {
+          errorMessage = JSON.stringify(error.response.data.errors);
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Erro', errorMessage);
     } finally {
       setLoading(false);
     }
   };
+
+  const ColorPicker = () => (
+    <View style={styles.colorPickerContainer}>
+      {predefinedColors.map((colorOption) => (
+        <TouchableOpacity
+          key={colorOption}
+          style={[
+            styles.colorOption,
+            { backgroundColor: colorOption },
+            color === colorOption && styles.colorOptionSelected
+          ]}
+          onPress={() => setColor(colorOption)}
+          activeOpacity={0.7}
+        >
+          {color === colorOption && (
+            <Text style={styles.colorSelectedText}>✓</Text>
+          )}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -138,25 +186,26 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
 
             <View style={styles.form}>
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Nome do Hábito</Text>
+                <Text style={styles.label}>Nome do Hábito *</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Ex: Beber 2L de água"
                   value={name}
                   onChangeText={setName}
-                  maxLength={50}
+                  maxLength={100}
                   returnKeyType="next"
                 />
+                <Text style={styles.helperText}>Mínimo 3 caracteres</Text>
               </View>
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Descrição (Opcional)</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
-                  placeholder="Descreva seu hábito..."
+                  placeholder="Descreva detalhes sobre seu hábito..."
                   value={description}
                   onChangeText={setDescription}
-                  maxLength={200}
+                  maxLength={500}
                   multiline
                   numberOfLines={3}
                   returnKeyType="next"
@@ -164,139 +213,115 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Categoria</Text>
-                <View style={styles.categoriesContainer}>
-                  {categories.map((cat) => (
+                <Text style={styles.label}>Meta/Objetivo (Opcional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ex: 30 minutos, 2 litros, 10 páginas"
+                  value={target}
+                  onChangeText={setTarget}
+                  maxLength={100}
+                  returnKeyType="next"
+                />
+                <Text style={styles.helperText}>Defina uma meta específica para seu hábito</Text>
+              </View>
+
+              {categories.length > 0 && (
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>Categoria (Opcional)</Text>
+                  <View style={styles.categoriesContainer}>
                     <TouchableOpacity
-                      key={cat.id}
                       style={[
                         styles.categoryButton,
-                        category === cat.id && { backgroundColor: cat.color }
+                        !categoryId && styles.categoryButtonSelected
                       ]}
-                      onPress={() => setCategory(cat.id)}
+                      onPress={() => setCategoryId('')}
                       activeOpacity={0.7}
                     >
                       <Text style={[
                         styles.categoryText,
-                        category === cat.id && styles.categoryTextSelected
+                        !categoryId && styles.categoryTextSelected
                       ]}>
-                        {cat.name}
+                        Nenhuma
                       </Text>
+                    </TouchableOpacity>
+                    {categories.map((cat) => (
+                      <TouchableOpacity
+                        key={cat.id}
+                        style={[
+                          styles.categoryButton,
+                          categoryId === cat.id && { 
+                            backgroundColor: cat.color,
+                            borderColor: cat.color
+                          }
+                        ]}
+                        onPress={() => setCategoryId(cat.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[
+                          styles.categoryText,
+                          categoryId === cat.id && styles.categoryTextSelected
+                        ]}>
+                          {cat.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Frequência *</Text>
+                <View style={styles.frequencyContainer}>
+                  {frequencyOptions.map((option) => (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[
+                        styles.frequencyOption,
+                        frequency === option.value && styles.frequencyOptionSelected
+                      ]}
+                      onPress={() => setFrequency(option.value)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[
+                        styles.radioButton,
+                        frequency === option.value && styles.radioButtonSelected
+                      ]}>
+                        {frequency === option.value && <View style={styles.radioButtonInner} />}
+                      </View>
+                      <Text style={styles.frequencyText}>{option.label}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Frequência</Text>
-                <View style={styles.frequencyContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyOption,
-                      frequency === 'daily' && styles.frequencyOptionSelected
-                    ]}
-                    onPress={() => setFrequency('daily')}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[
-                      styles.radioButton,
-                      frequency === 'daily' && styles.radioButtonSelected
-                    ]}>
-                      {frequency === 'daily' && <View style={styles.radioButtonInner} />}
-                    </View>
-                    <Text style={styles.frequencyText}>Todos os dias</Text>
-                  </TouchableOpacity>
+                <Text style={styles.label}>Cor do Hábito</Text>
+                <ColorPicker />
+              </View>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyOption,
-                      frequency === 'weekdays' && styles.frequencyOptionSelected
-                    ]}
-                    onPress={() => setFrequency('weekdays')}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[
-                      styles.radioButton,
-                      frequency === 'weekdays' && styles.radioButtonSelected
-                    ]}>
-                      {frequency === 'weekdays' && <View style={styles.radioButtonInner} />}
-                    </View>
-                    <Text style={styles.frequencyText}>Dias úteis</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.frequencyOption,
-                      frequency === 'custom' && styles.frequencyOptionSelected
-                    ]}
-                    onPress={() => setFrequency('custom')}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[
-                      styles.radioButton,
-                      frequency === 'custom' && styles.radioButtonSelected
-                    ]}>
-                      {frequency === 'custom' && <View style={styles.radioButtonInner} />}
-                    </View>
-                    <Text style={styles.frequencyText}>Personalizado</Text>
-                  </TouchableOpacity>
+              {/* Debug info - remover em produção */}
+              {__DEV__ && (
+                <View style={styles.debugContainer}>
+                  <Text style={styles.debugTitle}>Debug Info:</Text>
+                  <Text style={styles.debugText}>Nome: '{name}' (length: {name.length})</Text>
+                  <Text style={styles.debugText}>Descrição: '{description}' (length: {description.length})</Text>
+                  <Text style={styles.debugText}>Target: '{target}' (length: {target.length})</Text>
+                  <Text style={styles.debugText}>Categoria ID: '{categoryId}'</Text>
+                  <Text style={styles.debugText}>Frequência: '{frequency}'</Text>
+                  <Text style={styles.debugText}>Cor: '{color}'</Text>
+                  <Text style={styles.debugText}>Categorias carregadas: {categories.length}</Text>
+                  <Text style={styles.debugText}>Form válido: {validateForm() ? 'Sim' : 'Não'}</Text>
                 </View>
-
-                {frequency === 'custom' && (
-                  <View style={styles.daysContainer}>
-                    {weekDays.map((day) => (
-                      <TouchableOpacity
-                        key={day.id}
-                        style={[
-                          styles.dayButton,
-                          selectedDays.includes(day.id) && styles.dayButtonSelected
-                        ]}
-                        onPress={() => toggleDay(day.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[
-                          styles.dayButtonText,
-                          selectedDays.includes(day.id) && styles.dayButtonTextSelected
-                        ]}>
-                          {day.name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Horário</Text>
-                <TextInput
-                  style={styles.timeInput}
-                  value={time}
-                  onChangeText={setTime}
-                  placeholder="08:00"
-                  keyboardType="numeric"
-                  maxLength={5}
-                />
-              </View>
-
-              <View style={styles.inputGroup}>
-                <View style={styles.switchContainer}>
-                  <Text style={styles.label}>Lembrete</Text>
-                  <Switch
-                    value={reminder}
-                    onValueChange={setReminder}
-                    trackColor={{ false: '#D1D5DB', true: '#C4B5FD' }}
-                    thumbColor={reminder ? '#7C3AED' : '#9CA3AF'}
-                  />
-                </View>
-                <Text style={styles.switchDescription}>
-                  Receba notificações no horário definido
-                </Text>
-              </View>
+              )}
 
               <TouchableOpacity
-                style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+                style={[
+                  styles.saveButton,
+                  { backgroundColor: color },
+                  (loading || contextLoading) && styles.saveButtonDisabled
+                ]}
                 onPress={handleCreateHabit}
-                disabled={loading}
+                disabled={loading || contextLoading}
                 activeOpacity={0.8}
               >
                 <Text style={styles.saveButtonText}>
@@ -349,7 +374,7 @@ const styles = StyleSheet.create({
     gap: 24,
   },
   inputGroup: {
-    gap: 12,
+    gap: 8,
   },
   label: {
     fontSize: 16,
@@ -369,15 +394,10 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: 'top',
   },
-  timeInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#FFFFFF',
-    width: 100,
+  helperText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontStyle: 'italic',
   },
   categoriesContainer: {
     flexDirection: 'row',
@@ -391,6 +411,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D1D5DB',
     backgroundColor: '#FFFFFF',
+  },
+  categoryButtonSelected: {
+    backgroundColor: '#F3F4F6',
+    borderColor: '#9CA3AF',
   },
   categoryText: {
     fontSize: 14,
@@ -435,44 +459,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1F2937',
   },
-  daysContainer: {
+  colorPickerContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 12,
-    gap: 4,
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  dayButton: {
+  colorOption: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    borderWidth: 2,
+    borderColor: 'transparent',
   },
-  dayButtonSelected: {
-    backgroundColor: '#7C3AED',
-    borderColor: '#7C3AED',
+  colorOptionSelected: {
+    borderColor: '#1F2937',
+    borderWidth: 3,
   },
-  dayButtonText: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  dayButtonTextSelected: {
+  colorSelectedText: {
     color: '#FFFFFF',
-    fontWeight: '600',
-  },
-  switchContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  switchDescription: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: -8,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   saveButton: {
     backgroundColor: '#7C3AED',
@@ -488,6 +496,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  // Debug styles - remover em produção
+  debugContainer: {
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 16,
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 4,
   },
 });
 
