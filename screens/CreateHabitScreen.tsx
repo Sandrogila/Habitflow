@@ -300,19 +300,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               {/* Debug info - remover em produção */}
-              {__DEV__ && (
-                <View style={styles.debugContainer}>
-                  <Text style={styles.debugTitle}>Debug Info:</Text>
-                  <Text style={styles.debugText}>Nome: '{name}' (length: {name.length})</Text>
-                  <Text style={styles.debugText}>Descrição: '{description}' (length: {description.length})</Text>
-                  <Text style={styles.debugText}>Target: '{target}' (length: {target.length})</Text>
-                  <Text style={styles.debugText}>Categoria ID: '{categoryId}'</Text>
-                  <Text style={styles.debugText}>Frequência: '{frequency}'</Text>
-                  <Text style={styles.debugText}>Cor: '{color}'</Text>
-                  <Text style={styles.debugText}>Categorias carregadas: {categories.length}</Text>
-                  <Text style={styles.debugText}>Form válido: {validateForm() ? 'Sim' : 'Não'}</Text>
-                </View>
-              )}
+          
 
               <TouchableOpacity
                 style={[
