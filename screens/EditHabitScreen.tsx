@@ -7,13 +7,13 @@ import {
   StyleSheet,
   SafeAreaView,
   ScrollView,
-  Switch,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { RootStackParamList } from '../App';
-import { useHabits, categories } from '../context/HabitContext';
+import { useHabits } from '../context/HabitContext';
 
 type EditHabitScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'EditHabit'>;
@@ -21,29 +21,49 @@ type EditHabitScreenProps = {
 };
 
 const EditHabitScreen: React.FC<EditHabitScreenProps> = ({ navigation, route }) => {
-  const { habits, updateHabit, deleteHabit } = useHabits();
-  const habit = habits.find(h => h.id === route.params.habitId);
+  const { habitId } = route.params;
+  const { habits, categories, updateHabit, loading } = useHabits();
   
+  // Estados do formulário
   const [name, setName] = useState('');
-  const [category, setCategory] = useState(categories[0]);
-  const [frequency, setFrequency] = useState<'daily' | 'weekly' | 'custom'>('daily');
-  const [customDays, setCustomDays] = useState<number[]>([]);
-  const [time, setTime] = useState('');
-  const [reminder, setReminder] = useState(false);
+  const [description, setDescription] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedFrequency, setSelectedFrequency] = useState('daily');
+  const [target, setTarget] = useState('');
+  const [selectedColor, setSelectedColor] = useState('#3B82F6');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  // Encontrar o hábito a ser editado
+  const habit = habits.find(h => h.id === habitId);
 
+  // Cores disponíveis
+  const colors = [
+    '#3B82F6', '#EF4444', '#10B981', '#F59E0B',
+    '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16',
+    '#F97316', '#6366F1', '#14B8A6', '#F43F5E'
+  ];
+
+  // Frequências disponíveis
+  const frequencies = [
+    { value: 'daily', label: 'Diariamente' },
+    { value: 'weekdays', label: 'Dias úteis' },
+    { value: 'weekends', label: 'Fins de semana' },
+    { value: 'weekly', label: 'Semanalmente' },
+  ];
+
+  // Carregar dados do hábito quando a tela é aberta
   useEffect(() => {
     if (habit) {
-      setName(habit.name);
-      setCategory(habit.category);
-      setFrequency(habit.frequency);
-      setCustomDays(habit.customDays || []);
-      setTime(habit.time || '');
-      setReminder(habit.reminder);
+      setName(habit.name || '');
+      setDescription(habit.description || '');
+      setSelectedCategoryId(habit.categoryId || '');
+      setSelectedFrequency(habit.frequency || 'daily');
+      setTarget(habit.target || '');
+      setSelectedColor(habit.color || '#3B82F6');
     }
   }, [habit]);
 
+  // Se o hábito não foi encontrado
   if (!habit) {
     return (
       <SafeAreaView style={styles.container}>
@@ -60,193 +80,281 @@ const EditHabitScreen: React.FC<EditHabitScreenProps> = ({ navigation, route }) 
     );
   }
 
-  const toggleCustomDay = (day: number) => {
-    setCustomDays(prev => 
-      prev.includes(day) 
-        ? prev.filter(d => d !== day)
-        : [...prev, day]
-    );
-  };
-
-  const handleSave = () => {
+  const handleSubmit = async () => {
+    // Validações
     if (!name.trim()) {
-      Alert.alert('Erro', 'Digite o nome do hábito');
+      Alert.alert('Erro', 'O nome do hábito é obrigatório.');
       return;
     }
 
-    if (frequency === 'custom' && customDays.length === 0) {
-      Alert.alert('Erro', 'Selecione pelo menos um dia da semana');
+    if (name.trim().length < 2) {
+      Alert.alert('Erro', 'O nome do hábito deve ter pelo menos 2 caracteres.');
       return;
     }
 
-    updateHabit(habit.id, {
-      name: name.trim(),
-      category,
-      frequency,
-      customDays: frequency === 'custom' ? customDays : undefined,
-      time: time || undefined,
-      reminder,
-    });
+    if (name.trim().length > 100) {
+      Alert.alert('Erro', 'O nome do hábito deve ter no máximo 100 caracteres.');
+      return;
+    }
 
-    navigation.goBack();
+    if (description.trim().length > 500) {
+      Alert.alert('Erro', 'A descrição deve ter no máximo 500 caracteres.');
+      return;
+    }
+
+    if (target.trim().length > 50) {
+      Alert.alert('Erro', 'A meta deve ter no máximo 50 caracteres.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      // Preparar dados para atualização
+      const updateData = {
+        name: name.trim(),
+        description: description.trim() || undefined,
+        categoryId: selectedCategoryId || undefined,
+        frequency: selectedFrequency,
+        target: target.trim() || undefined,
+        color: selectedColor,
+      };
+
+      console.log('Atualizando hábito:', habitId, updateData);
+
+      await updateHabit(habitId, updateData);
+
+      Alert.alert(
+        'Sucesso',
+        'Hábito atualizado com sucesso!',
+        [
+          {
+            text: 'OK',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Erro ao atualizar hábito:', error);
+      Alert.alert(
+        'Erro',
+        `Não foi possível atualizar o hábito.\n\n${error.message || 'Tente novamente mais tarde.'}`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDelete = () => {
-    Alert.alert(
-      'Excluir Hábito',
-      'Tem certeza que deseja excluir este hábito? Esta ação não pode ser desfeita.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: () => {
-            deleteHabit(habit.id);
-            navigation.goBack();
-          },
-        },
-      ]
-    );
+  const getCategoryName = (categoryId: string) => {
+    const category = categories.find(cat => cat.id === categoryId);
+    return category?.name || 'Categoria não encontrada';
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.content}>
-        <View style={styles.section}>
-          <Text style={styles.label}>Nome do Hábito</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: Beber 2L de água"
-            value={name}
-            onChangeText={setName}
-          />
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.content}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.title}>Editar Hábito</Text>
+            <Text style={styles.subtitle}>
+              Atualize as informações do seu hábito
+            </Text>
+          </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Categoria</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.categoryContainer}>
-              {categories.map((cat) => (
+          {/* Formulário */}
+          <View style={styles.form}>
+            {/* Nome do Hábito */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Nome do Hábito *</Text>
+              <TextInput
+                style={styles.input}
+                value={name}
+                onChangeText={setName}
+                placeholder="Ex: Beber água, Exercitar-se"
+                placeholderTextColor="#9CA3AF"
+                maxLength={100}
+                editable={!isSubmitting}
+              />
+              <Text style={styles.charCount}>{name.length}/100</Text>
+            </View>
+
+            {/* Descrição */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Descrição</Text>
+              <TextInput
+                style={[styles.input, styles.textArea]}
+                value={description}
+                onChangeText={setDescription}
+                placeholder="Descreva seu hábito (opcional)"
+                placeholderTextColor="#9CA3AF"
+                multiline
+                numberOfLines={3}
+                maxLength={500}
+                editable={!isSubmitting}
+              />
+              <Text style={styles.charCount}>{description.length}/500</Text>
+            </View>
+
+            {/* Categoria */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Categoria</Text>
+              <View style={styles.categoryContainer}>
                 <TouchableOpacity
-                  key={cat}
                   style={[
-                    styles.categoryChip,
-                    category === cat && styles.categoryChipSelected,
+                    styles.categoryOption,
+                    !selectedCategoryId && styles.categoryOptionSelected
                   ]}
-                  onPress={() => setCategory(cat)}
+                  onPress={() => setSelectedCategoryId('')}
+                  disabled={isSubmitting}
                 >
-                  <Text
+                  <View style={[styles.categoryDot, { backgroundColor: '#6B7280' }]} />
+                  <Text style={[
+                    styles.categoryText,
+                    !selectedCategoryId && styles.categoryTextSelected
+                  ]}>
+                    Sem categoria
+                  </Text>
+                </TouchableOpacity>
+
+                {categories.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
                     style={[
+                      styles.categoryOption,
+                      selectedCategoryId === category.id && styles.categoryOptionSelected
+                    ]}
+                    onPress={() => setSelectedCategoryId(category.id)}
+                    disabled={isSubmitting}
+                  >
+                    <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                    <Text style={[
                       styles.categoryText,
-                      category === cat && styles.categoryTextSelected,
-                    ]}
-                  >
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                      selectedCategoryId === category.id && styles.categoryTextSelected
+                    ]}>
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
-          </ScrollView>
-        </View>
 
-        <View style={styles.section}>
-          <Text style={styles.label}>Frequência</Text>
-          <View style={styles.frequencyContainer}>
-            {[
-              { value: 'daily', label: 'Diário' },
-              { value: 'weekly', label: 'Semanal' },
-              { value: 'custom', label: 'Personalizado' },
-            ].map((freq) => (
-              <TouchableOpacity
-                key={freq.value}
-                style={[
-                  styles.frequencyOption,
-                  frequency === freq.value && styles.frequencyOptionSelected,
-                ]}
-                onPress={() => setFrequency(freq.value as any)}
-              >
-                <Text
-                  style={[
-                    styles.frequencyText,
-                    frequency === freq.value && styles.frequencyTextSelected,
-                  ]}
-                >
-                  {freq.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {frequency === 'custom' && (
-          <View style={styles.section}>
-            <Text style={styles.label}>Dias da Semana</Text>
-            <View style={styles.daysContainer}>
-              {dayNames.map((day, index) => (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.dayChip,
-                    customDays.includes(index) && styles.dayChipSelected,
-                  ]}
-                  onPress={() => toggleCustomDay(index)}
-                >
-                  <Text
+            {/* Frequência */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Frequência *</Text>
+              <View style={styles.frequencyContainer}>
+                {frequencies.map((freq) => (
+                  <TouchableOpacity
+                    key={freq.value}
                     style={[
-                      styles.dayText,
-                      customDays.includes(index) && styles.dayTextSelected,
+                      styles.frequencyOption,
+                      selectedFrequency === freq.value && styles.frequencyOptionSelected
                     ]}
+                    onPress={() => setSelectedFrequency(freq.value)}
+                    disabled={isSubmitting}
                   >
-                    {day}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <Text style={[
+                      styles.frequencyText,
+                      selectedFrequency === freq.value && styles.frequencyTextSelected
+                    ]}>
+                      {freq.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Meta */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Meta</Text>
+              <TextInput
+                style={styles.input}
+                value={target}
+                onChangeText={setTarget}
+                placeholder="Ex: 8 copos, 30 minutos"
+                placeholderTextColor="#9CA3AF"
+                maxLength={50}
+                editable={!isSubmitting}
+              />
+              <Text style={styles.charCount}>{target.length}/50</Text>
+            </View>
+
+            {/* Cor */}
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Cor do Hábito</Text>
+              <View style={styles.colorContainer}>
+                {colors.map((color) => (
+                  <TouchableOpacity
+                    key={color}
+                    style={[
+                      styles.colorOption,
+                      { backgroundColor: color },
+                      selectedColor === color && styles.colorOptionSelected
+                    ]}
+                    onPress={() => setSelectedColor(color)}
+                    disabled={isSubmitting}
+                  >
+                    {selectedColor === color && (
+                      <Text style={styles.colorCheckIcon}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {/* Preview */}
+            <View style={styles.previewContainer}>
+              <Text style={styles.previewLabel}>Prévia do Hábito</Text>
+              <View style={styles.previewCard}>
+                <View style={styles.previewHeader}>
+                  <View style={[styles.previewDot, { backgroundColor: selectedColor }]} />
+                  <View style={styles.previewInfo}>
+                    <Text style={styles.previewName}>
+                      {name.trim() || 'Nome do hábito'}
+                    </Text>
+                    <Text style={styles.previewCategory}>
+                      {selectedCategoryId ? getCategoryName(selectedCategoryId) : 'Sem categoria'}
+                    </Text>
+                    {description.trim() && (
+                      <Text style={styles.previewDescription}>
+                        {description.trim()}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                <Text style={styles.previewFrequency}>
+                  {frequencies.find(f => f.value === selectedFrequency)?.label}
+                </Text>
+                {target.trim() && (
+                  <Text style={styles.previewTarget}>Meta: {target.trim()}</Text>
+                )}
+              </View>
             </View>
           </View>
-        )}
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Horário (opcional)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ex: 08:00"
-            value={time}
-            onChangeText={setTime}
-          />
         </View>
-
-        <View style={styles.section}>
-          <View style={styles.reminderContainer}>
-            <Text style={styles.label}>Lembrete</Text>
-            <Switch
-              value={reminder}
-              onValueChange={setReminder}
-              trackColor={{ false: '#E5E7EB', true: '#667eea' }}
-              thumbColor={reminder ? '#ffffff' : '#9CA3AF'}
-            />
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.deleteButton}
-          onPress={handleDelete}
-        >
-          <Text style={styles.deleteButtonText}>Excluir Hábito</Text>
-        </TouchableOpacity>
       </ScrollView>
 
+      {/* Botões de Ação */}
       <View style={styles.footer}>
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={() => navigation.goBack()}
+          disabled={isSubmitting}
         >
           <Text style={styles.cancelButtonText}>Cancelar</Text>
         </TouchableOpacity>
+        
         <TouchableOpacity
-          style={styles.saveButton}
-          onPress={handleSave}
+          style={[styles.saveButton, isSubmitting && styles.saveButtonDisabled]}
+          onPress={handleSubmit}
+          disabled={isSubmitting || loading}
         >
-          <Text style={styles.saveButtonText}>Salvar</Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <Text style={styles.saveButtonText}>Salvar Alterações</Text>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -256,169 +364,263 @@ const EditHabitScreen: React.FC<EditHabitScreenProps> = ({ navigation, route }) 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#FFFFFF',
   },
   content: {
     flex: 1,
-    padding: 20,
   },
-  section: {
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  form: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+  inputGroup: {
     marginBottom: 24,
   },
   label: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    color: '#1F2937',
     marginBottom: 8,
-    color: '#22223b',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: '#D1D5DB',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#F9FAFB',
-    color: '#22223b',
+    color: '#1F2937',
+    backgroundColor: '#FFFFFF',
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  charCount: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'right',
+    marginTop: 4,
   },
   categoryContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  categoryOption: {
+    flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  categoryChip: {
+    paddingHorizontal: 12,
     paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: '#E5E7EB',
-    marginRight: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
-  categoryChipSelected: {
-    backgroundColor: '#667eea',
+  categoryOptionSelected: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#3B82F6',
+  },
+  categoryDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
   },
   categoryText: {
-    color: '#22223b',
-    fontWeight: '500',
+    fontSize: 14,
+    color: '#6B7280',
   },
   categoryTextSelected: {
-    color: '#fff',
+    color: '#3B82F6',
+    fontWeight: '600',
   },
   frequencyContainer: {
-    flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   frequencyOption: {
-    paddingVertical: 8,
     paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: '#E5E7EB',
-    marginRight: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
   },
   frequencyOptionSelected: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#EEF2FF',
+    borderColor: '#3B82F6',
   },
   frequencyText: {
-    color: '#22223b',
-    fontWeight: '500',
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
   },
   frequencyTextSelected: {
-    color: '#fff',
+    color: '#3B82F6',
+    fontWeight: '600',
   },
-  daysContainer: {
+  colorContainer: {
     flexDirection: 'row',
-    gap: 8,
     flexWrap: 'wrap',
+    gap: 12,
   },
-  dayChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 16,
-    backgroundColor: '#E5E7EB',
-    marginRight: 8,
+  colorOption: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorOptionSelected: {
+    borderColor: '#1F2937',
+  },
+  colorCheckIcon: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  previewContainer: {
+    marginTop: 12,
+  },
+  previewLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  previewCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginBottom: 8,
   },
-  dayChipSelected: {
-    backgroundColor: '#667eea',
+  previewDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+    marginTop: 4,
   },
-  dayText: {
-    color: '#22223b',
-    fontWeight: '500',
+  previewInfo: {
+    flex: 1,
   },
-  dayTextSelected: {
-    color: '#fff',
-  },
-  reminderContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  deleteButton: {
-    backgroundColor: '#f87171',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+  previewName: {
     fontSize: 16,
+    fontWeight: '600',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  previewCategory: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  previewDescription: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+  },
+  previewFrequency: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
+    marginBottom: 4,
+  },
+  previewTarget: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontStyle: 'italic',
   },
   footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    padding: 20,
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 32,
     borderTopWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    borderTopColor: '#E5E7EB',
+    flexDirection: 'row',
+    gap: 12,
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#E5E7EB',
-    padding: 16,
+    paddingVertical: 12,
     borderRadius: 8,
-    alignItems: 'center',
-    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#FFFFFF',
   },
   cancelButtonText: {
-    color: '#22223b',
-    fontWeight: 'bold',
+    color: '#6B7280',
     fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   saveButton: {
-    flex: 1,
-    backgroundColor: '#667eea',
-    padding: 16,
+    flex: 2,
+    paddingVertical: 12,
     borderRadius: 8,
+    backgroundColor: '#3B82F6',
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 8,
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#9CA3AF',
   },
   saveButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
   },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    paddingHorizontal: 20,
   },
   errorText: {
     fontSize: 18,
-    color: '#f87171',
-    marginBottom: 16,
+    color: '#EF4444',
+    marginBottom: 20,
     textAlign: 'center',
   },
   backButton: {
-    backgroundColor: '#667eea',
-    padding: 12,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#3B82F6',
     borderRadius: 8,
-    alignItems: 'center',
   },
   backButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '600',
   },
 });
 
