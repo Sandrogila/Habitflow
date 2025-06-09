@@ -178,7 +178,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         >
           <View style={styles.content}>
             <View style={styles.header}>
-              <Text style={styles.greeting}>Olá, Délcio!</Text>
+              <Text style={styles.greeting}>Olá, Seja bem vindo ao painel criar habitos</Text>
               <Text style={styles.subtitle}>Continue construindo seus hábitos</Text>
             </View>
 
@@ -199,7 +199,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Descrição (Opcional)</Text>
+                <Text style={styles.label}>Descrição</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   placeholder="Descreva detalhes sobre seu hábito..."
@@ -213,7 +213,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Meta/Objetivo (Opcional)</Text>
+                <Text style={styles.label}>Meta/Objetivo</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Ex: 30 minutos, 2 litros, 10 páginas"

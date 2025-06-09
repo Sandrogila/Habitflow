@@ -4,8 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuração base da API - ATUALIZE ESTAS URLs
 const BASE_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://127.0.0.1:5071'  // Para desenvolvimento local
-  : 'http://192.168.0.63:5071'; // Para dispositivos na rede
+    ? 'http://192.168.0.17:5071' // IP da máquina que roda o back-end
+    : 'http://192.168.0.17:5071'; // Mesmo IP para produção local
 
 // Tipos para as requisições e respostas
 export interface LoginRequest {
@@ -103,26 +103,26 @@ export interface HabitRecordDto {
   date: string;
   completed: boolean;
   note?: string;
-  achievedValue?: number; // Adicionado campo que estava faltando
+  achievedValue?: number;
   createdAt: string;
 }
 
 export interface MarkHabitAsDoneDto {
   date: string;
   note?: string;
-  achievedValue?: number; // Adicionado campo obrigatório
+  achievedValue?: number;
 }
 
 export interface MarkHabitAsNotDoneDto {
   date: string;
   note?: string;
-  achievedValue?: number; // Adicionado para consistência
+  achievedValue?: number;
 }
 
 // Instância do Axios
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 60000,
+  timeout: 90000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -303,12 +303,30 @@ export class HabitService {
     }
   }
 
+  static async getHabitById(habitId: string): Promise<HabitDto> {
+    try {
+      const response = await api.get<HabitDto>(`/habits/${habitId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao buscar hábito:', error);
+      if (error.response?.status === 404) {
+        throw new Error('Hábito não encontrado');
+      }
+      throw new Error('Erro ao carregar hábito');
+    }
+  }
+
   static async createHabit(habitData: CreateHabitDto): Promise<HabitDto> {
     try {
       const response = await api.post<HabitDto>('/habits', habitData);
       return response.data;
     } catch (error: any) {
       console.error('Erro ao criar hábito:', error);
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 400) {
+        throw new Error('Dados inválidos. Verifique as informações.');
+      }
       throw new Error('Erro ao criar hábito');
     }
   }
@@ -319,6 +337,15 @@ export class HabitService {
       return response.data;
     } catch (error: any) {
       console.error('Erro ao atualizar hábito:', error);
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 404) {
+        throw new Error('Hábito não encontrado');
+      } else if (error.response?.status === 400) {
+        throw new Error('Dados inválidos. Verifique as informações.');
+      } else if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      }
       throw new Error('Erro ao atualizar hábito');
     }
   }
@@ -328,101 +355,108 @@ export class HabitService {
       await api.delete(`/habits/${habitId}`);
     } catch (error: any) {
       console.error('Erro ao deletar hábito:', error);
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 404) {
+        throw new Error('Hábito não encontrado');
+      } else if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      } else if (error.response?.status === 403) {
+        throw new Error('Você não tem permissão para deletar este hábito');
+      }
       throw new Error('Erro ao deletar hábito');
     }
   }
 
-// Substitua as funções markHabitAsDone e markHabitAsNotDone no seu api.ts por estas versões corrigidas:
-
-static async markHabitAsDone(habitId: string, data: MarkHabitAsDoneDto): Promise<HabitRecordDto> {
-  try {
-    // Validar e formatar dados
-    if (!data.date) {
-      throw new Error('Data é obrigatória');
-    }
-
-    // Garantir que a data está no formato ISO correto
-    let formattedDate: string;
+  static async markHabitAsDone(habitId: string, data: MarkHabitAsDoneDto): Promise<HabitRecordDto> {
     try {
-      formattedDate = new Date(data.date).toISOString();
-    } catch (dateError) {
-      throw new Error('Formato de data inválido');
-    }
+      // Validar e formatar dados
+      if (!data.date) {
+        throw new Error('Data é obrigatória');
+      }
 
-    const requestData = {
-      date: formattedDate,
-      note: data.note || "feito",
-      achievedValue: data.achievedValue || 1
-    };
+      // Garantir que a data está no formato ISO correto
+      let formattedDate: string;
+      try {
+        formattedDate = new Date(data.date).toISOString();
+      } catch (dateError) {
+        throw new Error('Formato de data inválido');
+      }
 
-    console.log('Dados enviados para markHabitAsDone:', requestData);
-    
-    const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/done`, requestData);
-    return response.data;
-  } catch (error: any) {
-    console.error('Erro ao marcar hábito como feito:', error);
-    console.error('Response data:', error.response?.data);
-    console.error('Status:', error.response?.status);
-    
-    if (error.response?.data?.message) {
-      throw new Error(error.response.data.message);
-    } else if (error.response?.status === 400) {
-      const errorDetails = error.response.data?.errors || error.response.data;
-      console.error('Detalhes do erro 400:', errorDetails);
-      throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
-    } else if (error.response?.status === 404) {
-      throw new Error('Hábito não encontrado');
-    } else if (error.response?.status === 401) {
-      throw new Error('Não autorizado - faça login novamente');
+      const requestData = {
+        date: formattedDate,
+        note: data.note || "feito",
+        achievedValue: data.achievedValue || 1
+      };
+
+      console.log('Dados enviados para markHabitAsDone:', requestData);
+      
+      const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/done`, requestData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao marcar hábito como feito:', error);
+      console.error('Response data:', error.response?.data);
+      console.error('Status:', error.response?.status);
+      
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 400) {
+        const errorDetails = error.response.data?.errors || error.response.data;
+        console.error('Detalhes do erro 400:', errorDetails);
+        throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
+      } else if (error.response?.status === 404) {
+        throw new Error('Hábito não encontrado');
+      } else if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      }
+      throw new Error('Erro ao marcar hábito como feito');
     }
-    throw new Error('Erro ao marcar hábito como feito');
+  }
+
+  static async markHabitAsNotDone(habitId: string, data: MarkHabitAsNotDoneDto): Promise<HabitRecordDto> {
+    try {
+      // Validar e formatar dados
+      if (!data.date) {
+        throw new Error('Data é obrigatória');
+      }
+
+      // Garantir que a data está no formato ISO correto
+      let formattedDate: string;
+      try {
+        formattedDate = new Date(data.date).toISOString();
+      } catch (dateError) {
+        throw new Error('Formato de data inválido');
+      }
+
+      const requestData = {
+        date: formattedDate,
+        note: data.note || "desmarcado",
+        achievedValue: data.achievedValue || 0
+      };
+
+      console.log('Dados enviados para markHabitAsNotDone:', requestData);
+      
+      const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/not-done`, requestData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao marcar hábito como não feito:', error);
+      console.error('Response data:', error.response?.data);
+      console.error('Status:', error.response?.status);
+      
+      if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else if (error.response?.status === 400) {
+        const errorDetails = error.response.data?.errors || error.response.data;
+        console.error('Detalhes do erro 400:', errorDetails);
+        throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
+      } else if (error.response?.status === 404) {
+        throw new Error('Hábito não encontrado');
+      } else if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      }
+      throw new Error('Erro ao marcar hábito como não feito');
+    }
   }
 }
-
-static async markHabitAsNotDone(habitId: string, data: MarkHabitAsNotDoneDto): Promise<HabitRecordDto> {
-  try {
-    // Validar e formatar dados
-    if (!data.date) {
-      throw new Error('Data é obrigatória');
-    }
-
-    // Garantir que a data está no formato ISO correto
-    let formattedDate: string;
-    try {
-      formattedDate = new Date(data.date).toISOString();
-    } catch (dateError) {
-      throw new Error('Formato de data inválido');
-    }
-
-    const requestData = {
-      date: formattedDate,
-      note: data.note || "desmarcado",
-      achievedValue: data.achievedValue || 0
-    };
-
-    console.log('Dados enviados para markHabitAsNotDone:', requestData);
-    
-    const response = await api.post<HabitRecordDto>(`/habits/${habitId}/records/not-done`, requestData);
-    return response.data;
-  } catch (error: any) {
-    console.error('Erro ao marcar hábito como não feito:', error);
-    console.error('Response data:', error.response?.data);
-    console.error('Status:', error.response?.status);
-    
-    if (error.response?.data?.message) {
-      throw new Error(error.response.data.message);
-    } else if (error.response?.status === 400) {
-      const errorDetails = error.response.data?.errors || error.response.data;
-      console.error('Detalhes do erro 400:', errorDetails);
-      throw new Error(`Dados inválidos: ${JSON.stringify(errorDetails)}`);
-    } else if (error.response?.status === 404) {
-      throw new Error('Hábito não encontrado');
-    } else if (error.response?.status === 401) {
-      throw new Error('Não autorizado - faça login novamente');
-    }
-    throw new Error('Erro ao marcar hábito como não feito');
-  }
-}
-  }
 
 export default api;

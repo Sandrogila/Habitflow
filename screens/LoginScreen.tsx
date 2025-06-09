@@ -32,7 +32,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   };
 
   const handleLogin = async () => {
-    // Validações básicas
     if (!email.trim() || !password.trim()) {
       Alert.alert('Erro', 'Preencha todos os campos');
       return;
@@ -57,16 +56,13 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       };
 
       const response = await AuthService.login(loginData);
-      
-      // Login bem-sucedido
+
       console.log('Login realizado com sucesso:', response.user.name);
-      
-      // Navegar para a tela principal
+
       navigation.reset({
         index: 0,
         routes: [{ name: 'MainTabs' }],
       });
-
     } catch (error: any) {
       console.error('Erro no login:', error);
       Alert.alert('Erro no Login', error.message || 'Erro inesperado ao fazer login');
@@ -82,7 +78,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
@@ -99,7 +95,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
 
           {/* Tabs */}
           <View style={styles.tabContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tab, activeTab === 'login' && styles.activeTab]}
               disabled={loading}
             >
@@ -107,7 +103,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                 Entrar
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tab, activeTab === 'register' && styles.activeTab]}
               onPress={switchToRegister}
               disabled={loading}
@@ -118,7 +114,7 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
-          {/* Form */}
+          {/* Formulário */}
           <View style={styles.form}>
             <TextInput
               style={[styles.input, loading && styles.inputDisabled]}
@@ -132,7 +128,6 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               editable={!loading}
               autoCorrect={false}
             />
-
             <TextInput
               style={[styles.input, loading && styles.inputDisabled]}
               placeholder="Senha"
@@ -254,7 +249,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     fontSize: 16,
-    color: '#2C2C2E',
+    color: '#2C2C2E', // ← Aqui garante que o texto digitado fique visível
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E5EA',

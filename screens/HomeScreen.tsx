@@ -11,16 +11,17 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { useHabits } from '../context/HabitContext';
-import { AuthService, UserDto } from '../services/api';
+import { AuthService, UserDto, HabitService } from '../services/api';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { habits, toggleHabitCompletion, getHabitsForDate, getHabitStats, categories, loading } = useHabits();
+  const { habits, toggleHabitCompletion, getHabitsForDate, getHabitStats, categories, loading, refreshHabits } = useHabits();
   const [currentUser, setCurrentUser] = useState<UserDto | null>(null);
   const [updatingHabits, setUpdatingHabits] = useState<Set<string>>(new Set());
+  const [deletingHabits, setDeletingHabits] = useState<Set<string>>(new Set());
   
   const today = new Date().toISOString().split('T')[0];
   const todayHabits = getHabitsForDate(today);
@@ -87,7 +88,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const isHabitCompletedToday = (habit: any) => {
     if (!habit.records) return false;
     
-    const todayRecord = habit.records.find((record: any) => record.date === today);
+    const todayRecord = habit.records.find((record: any) => {
+      const recordDate = record.date.split('T')[0];
+      const todayDate = today.split('T')[0];
+      return recordDate === todayDate;
+    });
     return todayRecord?.completed || false;
   };
 
@@ -148,35 +153,107 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return streak;
   };
 
-  // Função para lidar com o toggle do hábito com feedback visual
-  const handleToggleHabit = async (habitId: string, habitName: string) => {
+  // Função para lidar com a conclusão do hábito
+  const handleCompleteHabit = async (habitId: string, habitName: string) => {
+    // Verificar se o hábito já está sendo atualizado
+    if (updatingHabits.has(habitId)) {
+      return;
+    }
+
     // Adicionar o hábito ao conjunto de hábitos sendo atualizados
     setUpdatingHabits(prev => new Set(prev).add(habitId));
     
     try {
       await toggleHabitCompletion(habitId, today);
-      // Remover feedback visual após uma pequena pausa para mostrar a animação
+      
+      // Feedback visual por um momento
       setTimeout(() => {
         setUpdatingHabits(prev => {
           const newSet = new Set(prev);
           newSet.delete(habitId);
           return newSet;
         });
-      }, 300);
+      }, 500);
+      
     } catch (error: any) {
       console.error('Erro ao atualizar hábito:', error);
+      
       // Remover do conjunto em caso de erro
       setUpdatingHabits(prev => {
         const newSet = new Set(prev);
         newSet.delete(habitId);
         return newSet;
       });
+      
       Alert.alert(
         'Erro', 
-        `Não foi possível atualizar o hábito "${habitName}". Tente novamente.`,
+        `Não foi possível atualizar o hábito "${habitName}". ${error.message || 'Tente novamente.'}`,
         [{ text: 'OK' }]
       );
     }
+  };
+
+  // Função para editar hábito
+  const handleEditHabit = (habitId: string) => {
+    navigation.navigate('EditHabit', { habitId });
+  };
+
+  // Função para apagar hábito com confirmação
+  const handleDeleteHabit = async (habitId: string, habitName: string) => {
+    // Verificar se o hábito já está sendo deletado
+    if (deletingHabits.has(habitId)) {
+      return;
+    }
+
+    Alert.alert(
+      'Confirmar Exclusão',
+      `Tem certeza que deseja excluir o hábito "${habitName}"?\n\nEsta ação não pode ser desfeita e todos os registros serão perdidos.`,
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            // Adicionar ao conjunto de hábitos sendo deletados
+            setDeletingHabits(prev => new Set(prev).add(habitId));
+            
+            try {
+              // Chamar o serviço para deletar o hábito
+              await HabitService.deleteHabit(habitId);
+              
+              // Recarregar a lista de hábitos
+              await refreshHabits();
+              
+              // Mostrar mensagem de sucesso
+              Alert.alert(
+                'Sucesso', 
+                `Hábito "${habitName}" foi excluído com sucesso.`,
+                [{ text: 'OK' }]
+              );
+              
+            } catch (error: any) {
+              console.error('Erro ao deletar hábito:', error);
+              
+              Alert.alert(
+                'Erro',
+                `Não foi possível excluir o hábito "${habitName}".\n\n${error.message || 'Tente novamente mais tarde.'}`,
+                [{ text: 'OK' }]
+              );
+            } finally {
+              // Remover do conjunto de hábitos sendo deletados
+              setDeletingHabits(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(habitId);
+                return newSet;
+              });
+            }
+          },
+        },
+      ]
+    );
   };
 
   const HabitCard = ({ habit }: { habit: any }) => {
@@ -185,76 +262,131 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     const categoryName = getCategoryName(habit.categoryId);
     const streak = getHabitStreak(habit);
     const isUpdating = updatingHabits.has(habit.id);
+    const isDeleting = deletingHabits.has(habit.id);
     
     return (
-      <TouchableOpacity
+      <View
         style={[
           styles.habitCard,
           isCompleted && styles.habitCardCompleted,
-          isUpdating && styles.habitCardUpdating
+          (isUpdating || isDeleting) && styles.habitCardUpdating
         ]}
-        onPress={() => handleToggleHabit(habit.id, habit.name)}
-        disabled={loading || isUpdating}
       >
-        <View style={styles.habitCardContent}>
-          <View style={styles.habitLeft}>
-            <View style={[
-              styles.categoryDot, 
-              { backgroundColor: categoryColor },
-              isCompleted && styles.categoryDotCompleted
-            ]} />
-            <View style={styles.habitInfo}>
+        <View style={styles.habitCardHeader}>
+          {/* Indicador de categoria */}
+          <View style={[
+            styles.categoryDot, 
+            { backgroundColor: categoryColor },
+            isCompleted && styles.categoryDotCompleted
+          ]} />
+          
+          {/* Informações do hábito */}
+          <View style={styles.habitInfo}>
+            <Text style={[
+              styles.habitName,
+              isCompleted && styles.habitNameCompleted
+            ]}>
+              {habit.name}
+            </Text>
+            <Text style={[
+              styles.habitCategory, 
+              { color: isCompleted ? '#6B7280' : categoryColor }
+            ]}>
+              {categoryName}
+            </Text>
+            {habit.description && (
               <Text style={[
-                styles.habitName,
-                isCompleted && styles.habitNameCompleted
+                styles.habitDescription,
+                isCompleted && styles.habitDescriptionCompleted
               ]}>
-                {habit.name}
+                {habit.description}
               </Text>
-              <Text style={[
-                styles.habitCategory, 
-                { color: isCompleted ? '#6B7280' : categoryColor }
-              ]}>
-                {categoryName}
-              </Text>
-              {habit.description && (
-                <Text style={[
-                  styles.habitDescription,
-                  isCompleted && styles.habitDescriptionCompleted
-                ]}>
-                  {habit.description}
-                </Text>
-              )}
-            </View>
+            )}
           </View>
           
-          <View style={styles.habitRight}>
-            <TouchableOpacity
-              style={[
-                styles.checkButton,
-                isCompleted && styles.checkButtonCompleted,
-                isUpdating && styles.checkButtonUpdating
-              ]}
-              onPress={() => handleToggleHabit(habit.id, habit.name)}
-              disabled={loading || isUpdating}
-            >
-              {isCompleted && <Text style={styles.checkMark}>✓</Text>}
-              {isUpdating && <Text style={styles.updatingText}>⟳</Text>}
-            </TouchableOpacity>
-            
-            <View style={styles.progressContainer}>
-              <Text style={[
-                styles.progressText,
-                isCompleted && styles.progressTextCompleted
-              ]}>
-                {streak} dias
-              </Text>
+          {/* Status de conclusão */}
+          <View style={styles.habitStatus}>
+            <View style={[
+              styles.statusIndicator,
+              isCompleted && styles.statusIndicatorCompleted
+            ]}>
+              {isCompleted && <Text style={styles.checkIcon}>✓</Text>}
             </View>
+            <Text style={[
+              styles.streakText,
+              isCompleted && styles.streakTextCompleted
+            ]}>
+              {streak} dias
+            </Text>
           </View>
+        </View>
+        
+        {/* Botões de Ação */}
+        <View style={styles.actionButtons}>
+          {/* Botão de Concluir/Desmarcar */}
+          <TouchableOpacity
+            style={[
+              styles.actionButton, 
+              styles.completeButton,
+              isCompleted && styles.completeButtonCompleted,
+              isUpdating && styles.buttonDisabled
+            ]}
+            onPress={() => handleCompleteHabit(habit.id, habit.name)}
+            disabled={loading || isUpdating || isDeleting}
+          >
+            <Text style={[
+              styles.completeButtonIcon,
+              isCompleted && styles.completeButtonIconCompleted
+            ]}>
+              {isUpdating ? '⟳' : (isCompleted ? '✓' : '○')}
+            </Text>
+            <Text style={[
+              styles.actionButtonLabel,
+              styles.completeButtonLabel,
+              isCompleted && styles.completeButtonLabelCompleted
+            ]}>
+              {isUpdating ? 'Atualizando...' : (isCompleted ? 'Concluído' : 'Concluir')}
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Botão de Editar */}
+          <TouchableOpacity
+            style={[
+              styles.actionButton, 
+              styles.editButton,
+              (isUpdating || isDeleting) && styles.buttonDisabled
+            ]}
+            onPress={() => handleEditHabit(habit.id)}
+            disabled={loading || isUpdating || isDeleting}
+          >
+            <Text style={styles.editButtonIcon}>✏️</Text>
+            <Text style={[styles.actionButtonLabel, styles.editButtonLabel]}>
+              Editar
+            </Text>
+          </TouchableOpacity>
+          
+          {/* Botão de Apagar */}
+          <TouchableOpacity
+            style={[
+              styles.actionButton, 
+              styles.deleteButton,
+              isDeleting && styles.buttonDisabled
+            ]}
+            onPress={() => handleDeleteHabit(habit.id, habit.name)}
+            disabled={loading || isUpdating || isDeleting}
+          >
+            <Text style={styles.deleteButtonIcon}>
+              {isDeleting ? '⟳' : '🗑️'}
+            </Text>
+            <Text style={[styles.actionButtonLabel, styles.deleteButtonLabel]}>
+              {isDeleting ? 'Excluindo...' : 'Apagar'}
+            </Text>
+          </TouchableOpacity>
         </View>
         
         {/* Linha de risco quando completado */}
         {isCompleted && <View style={styles.strikethrough} />}
-      </TouchableOpacity>
+      </View>
     );
   };
 
@@ -360,7 +492,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {/* Loading indicator */}
         {loading && (
           <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Atualizando...</Text>
+            <Text style={styles.loadingText}>Carregando...</Text>
           </View>
         )}
       </ScrollView>
@@ -518,42 +650,45 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   habitsContainer: {
-    gap: 12,
+    gap: 16,
   },
   habitCard: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: '#F8FAFC',
     borderRadius: 12,
     padding: 16,
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   habitCardCompleted: {
-    backgroundColor: '#F0F9FF',
-    borderColor: '#16A34A',
-    opacity: 0.8,
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
   },
   habitCardUpdating: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
-  habitCardContent: {
+  habitCardHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  habitLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   categoryDot: {
     width: 12,
     height: 12,
     borderRadius: 6,
     marginRight: 12,
+    marginTop: 4,
   },
   categoryDotCompleted: {
-    opacity: 0.6,
+    opacity: 0.7,
   },
   habitInfo: {
     flex: 1,
@@ -571,23 +706,21 @@ const styles = StyleSheet.create({
   habitCategory: {
     fontSize: 14,
     fontWeight: '500',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   habitDescription: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#6B7280',
-    marginTop: 2,
+    lineHeight: 18,
   },
   habitDescriptionCompleted: {
     color: '#9CA3AF',
     textDecorationLine: 'line-through',
   },
-  habitRight: {
-    flexDirection: 'row',
+  habitStatus: {
     alignItems: 'center',
-    gap: 12,
   },
-  checkButton: {
+  statusIndicator: {
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -596,49 +729,103 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
+    marginBottom: 4,
   },
-  checkButtonCompleted: {
+  statusIndicatorCompleted: {
     backgroundColor: '#16A34A',
     borderColor: '#16A34A',
   },
-  checkButtonUpdating: {
-    backgroundColor: '#F59E0B',
-    borderColor: '#F59E0B',
-  },
-  checkMark: {
+  checkIcon: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: 'bold',
   },
-  updatingText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  progressContainer: {
-    alignItems: 'center',
-  },
-  progressText: {
-    fontSize: 12,
+  streakText: {
+    fontSize: 11,
     color: '#6B7280',
     fontWeight: '500',
   },
-  progressTextCompleted: {
+  streakTextCompleted: {
     color: '#16A34A',
     fontWeight: 'bold',
   },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  completeButton: {
+    backgroundColor: '#F0F9FF',
+    borderColor: '#3B82F6',
+  },
+  completeButtonCompleted: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#16A34A',
+  },
+  editButton: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#F59E0B',
+  },
+  deleteButton: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#EF4444',
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  completeButtonIcon: {
+    fontSize: 14,
+    marginRight: 6,
+    color: '#3B82F6',
+  },
+  completeButtonIconCompleted: {
+    color: '#16A34A',
+  },
+  editButtonIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  deleteButtonIcon: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  actionButtonLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  completeButtonLabel: {
+    color: '#3B82F6',
+  },
+  completeButtonLabelCompleted: {
+    color: '#16A34A',
+  },
+  editButtonLabel: {
+    color: '#F59E0B',
+  },
+  deleteButtonLabel: {
+    color: '#EF4444',
+  },
   strikethrough: {
     position: 'absolute',
-    top: '50%',
+    top: '40%',
     left: 16,
     right: 16,
     height: 1,
     backgroundColor: '#16A34A',
-    opacity: 0.7,
+    opacity: 0.4,
   },
   emptyState: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 40,
   },
   emptyStateText: {
     fontSize: 16,
@@ -658,7 +845,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   loadingContainer: {
-    paddingVertical: 16,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -667,4 +854,5 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
 });
+
 export default HomeScreen;

@@ -49,6 +49,7 @@ interface HabitContextType {
     totalCompletionsThisWeek: number;
     totalCompletionsThisMonth: number;
   };
+  refreshHabits: () => Promise<void>;
 }
 
 const HabitContext = createContext<HabitContextType | undefined>(undefined);
@@ -205,83 +206,107 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }
   };
 
-  // Substitua a função toggleHabitCompletion no seu HabitContext por esta versão corrigida:
+  const toggleHabitCompletion = async (id: string, date: string) => {
+    try {
+      setError(null);
+      const habit = habits.find(h => h.id === id);
+      if (!habit) {
+        console.error('Hábito não encontrado:', id);
+        return;
+      }
 
-const toggleHabitCompletion = async (id: string, date: string) => {
-  try {
-    setError(null);
-    const habit = habits.find(h => h.id === id);
-    if (!habit) {
-      console.error('Hábito não encontrado:', id);
-      return;
+      // Verificar se já existe um registro para esta data
+      const existingRecord = habit.records?.find(record => {
+        // Comparar apenas a data (YYYY-MM-DD) ignorando o horário
+        const recordDate = record.date.split('T')[0];
+        const targetDate = date.split('T')[0];
+        return recordDate === targetDate;
+      });
+      
+      const isCurrentlyCompleted = existingRecord?.completed || false;
+
+      console.log('Estado atual do hábito:', {
+        habitId: id,
+        date,
+        isCurrentlyCompleted,
+        existingRecord
+      });
+
+      // Criar um DateTime completo para a data (meio-dia UTC para evitar problemas de timezone)
+      const dateTime = new Date(date + 'T12:00:00.000Z').toISOString();
+
+      // Preparar dados para envio
+      const requestData = {
+        date: dateTime,
+        note: isCurrentlyCompleted ? "desmarcado" : "feito",
+        achievedValue: 1
+      };
+
+      console.log('Dados a serem enviados:', requestData);
+
+      if (isCurrentlyCompleted) {
+        // Marcar como não feito
+        console.log('Marcando hábito como não feito');
+        await HabitService.markHabitAsNotDone(id, requestData);
+      } else {
+        // Marcar como feito
+        console.log('Marcando hábito como feito');
+        await HabitService.markHabitAsDone(id, requestData);
+      }
+
+      // Recarregar hábitos para obter os dados atualizados
+      await loadHabits();
+      
+      console.log('Hábito atualizado com sucesso');
+    } catch (err: any) {
+      console.error('Erro detalhado ao atualizar status do hábito:', err);
+      console.error('Response:', err.response?.data);
+      
+      // Melhor tratamento de erros
+      let errorMessage = 'Erro ao atualizar status do hábito';
+      
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.status === 400) {
+        errorMessage = 'Dados inválidos - verifique o formato da data e campos obrigatórios';
+      } else if (err.response?.status === 404) {
+        errorMessage = 'Hábito não encontrado';
+      } else if (err.response?.status === 401) {
+        errorMessage = 'Não autorizado - faça login novamente';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
     }
-
-    // Verificar se já existe um registro para esta data
-    const existingRecord = habit.records?.find(record => record.date === date);
-    const isCurrentlyCompleted = existingRecord?.completed || false;
-
-    console.log('Estado atual do hábito:', {
-      habitId: id,
-      date,
-      isCurrentlyCompleted,
-      existingRecord
-    });
-
-    // CORREÇÃO: Criar um DateTime completo para a data
-    const dateTime = new Date(date + 'T12:00:00.000Z').toISOString();
-
-    // Preparar dados para envio - FORMATO CORRETO
-    const requestData = {
-      date: dateTime, // Usar formato DateTime completo
-      note: isCurrentlyCompleted ? "desmarcado" : "feito",
-      achievedValue: 1
-    };
-
-    console.log('Dados a serem enviados (corrigidos):', requestData);
-
-    if (isCurrentlyCompleted) {
-      // Marcar como não feito
-      console.log('Marcando hábito como não feito');
-      await HabitService.markHabitAsNotDone(id, requestData);
-    } else {
-      // Marcar como feito
-      console.log('Marcando hábito como feito');
-      await HabitService.markHabitAsDone(id, requestData);
-    }
-
-    // Recarregar hábitos para obter os dados atualizados
-    await loadHabits();
-    
-    console.log('Hábito atualizado com sucesso');
-  } catch (err: any) {
-    console.error('Erro detalhado ao atualizar status do hábito:', err);
-    console.error('Response:', err.response?.data);
-    
-    // Melhor tratamento de erros
-    let errorMessage = 'Erro ao atualizar status do hábito';
-    
-    if (err.response?.data?.message) {
-      errorMessage = err.response.data.message;
-    } else if (err.response?.status === 400) {
-      errorMessage = 'Dados inválidos - verifique o formato da data e campos obrigatórios';
-    } else if (err.response?.status === 404) {
-      errorMessage = 'Hábito não encontrado';
-    } else if (err.response?.status === 401) {
-      errorMessage = 'Não autorizado - faça login novamente';
-    }
-    
-    setError(errorMessage);
-    throw new Error(errorMessage);
-  }
-};
+  };
 
   const getHabitsForDate = (date: string): Habit[] => {
-    // Por enquanto, retorna todos os hábitos
-    // A lógica de dias específicos pode ser implementada baseada na frequência
+    // Normalizar a data para comparação (apenas YYYY-MM-DD)
+    const targetDate = date.split('T')[0];
+    
     return habits.filter(habit => {
-      // Aqui você pode adicionar lógica para filtrar por frequência
-      // Por exemplo, se frequency for 'daily', sempre retorna
-      // Se for 'weekdays', verificar se é dia útil, etc.
+      // Filtrar baseado na frequência do hábito
+      if (habit.frequency === 'daily') {
+        return true; // Hábitos diários sempre aparecem
+      }
+      
+      if (habit.frequency === 'weekdays') {
+        const dayOfWeek = new Date(targetDate).getDay();
+        return dayOfWeek >= 1 && dayOfWeek <= 5; // Segunda a sexta (1-5)
+      }
+      
+      if (habit.frequency === 'weekends') {
+        const dayOfWeek = new Date(targetDate).getDay();
+        return dayOfWeek === 0 || dayOfWeek === 6; // Domingo (0) e sábado (6)
+      }
+      
+      if (habit.frequency === 'weekly') {
+        // Para hábitos semanais, pode aparecer qualquer dia
+        // Você pode implementar lógica específica aqui se necessário
+        return true;
+      }
+      
+      // Para outras frequências, sempre retorna true por padrão
       return true;
     });
   };
@@ -292,18 +317,22 @@ const toggleHabitCompletion = async (id: string, date: string) => {
     
     // Contar hábitos completados hoje
     const completedToday = todayHabits.filter(habit => {
-      const todayRecord = habit.records?.find(record => record.date === today);
+      const todayRecord = habit.records?.find(record => {
+        const recordDate = record.date.split('T')[0];
+        return recordDate === today;
+      });
       return todayRecord?.completed || false;
     }).length;
 
-    // Calcular estatísticas da semana
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    // Calcular estatísticas da semana (domingo a sábado)
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay()); // Voltar para domingo
+    startOfWeek.setHours(0, 0, 0, 0);
     const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
     
     // Calcular estatísticas do mês
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfMonthStr = startOfMonth.toISOString().split('T')[0];
 
     let totalCompletionsThisWeek = 0;
@@ -312,10 +341,12 @@ const toggleHabitCompletion = async (id: string, date: string) => {
     habits.forEach(habit => {
       habit.records?.forEach(record => {
         if (record.completed) {
-          if (record.date >= startOfWeekStr) {
+          const recordDate = record.date.split('T')[0];
+          
+          if (recordDate >= startOfWeekStr) {
             totalCompletionsThisWeek++;
           }
-          if (record.date >= startOfMonthStr) {
+          if (recordDate >= startOfMonthStr) {
             totalCompletionsThisMonth++;
           }
         }
@@ -328,6 +359,11 @@ const toggleHabitCompletion = async (id: string, date: string) => {
       totalCompletionsThisWeek,
       totalCompletionsThisMonth,
     };
+  };
+
+  // Função para recarregar hábitos (alias para loadHabits)
+  const refreshHabits = async () => {
+    await loadHabits();
   };
 
   // Carregar dados iniciais
@@ -350,6 +386,7 @@ const toggleHabitCompletion = async (id: string, date: string) => {
       toggleHabitCompletion,
       getHabitsForDate,
       getHabitStats,
+      refreshHabits,
     }}>
       {children}
     </HabitContext.Provider>
