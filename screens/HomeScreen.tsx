@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,14 +18,15 @@ type HomeScreenProps = {
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { habits, toggleHabitCompletion, getHabitsForDate, getHabitStats, categories, loading, refreshHabits } = useHabits();
+  const { habits, toggleHabitCompletion, getHabitsForDate, categories, loading, refreshHabits } = useHabits();
   const [currentUser, setCurrentUser] = useState<UserDto | null>(null);
   const [updatingHabits, setUpdatingHabits] = useState<Set<string>>(new Set());
   const [deletingHabits, setDeletingHabits] = useState<Set<string>>(new Set());
   
   const today = new Date().toISOString().split('T')[0];
-  const todayHabits = getHabitsForDate(today);
-  const stats = getHabitStats();
+
+  // Memoizar cálculos para otimizar performance
+  const todayHabits = useMemo(() => getHabitsForDate(today), [habits, today]);
 
   // Carregar dados do usuário logado
   useEffect(() => {
@@ -55,48 +56,107 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return category?.name || 'Sem categoria';
   };
 
+  // Função melhorada para verificar se o hábito foi completado hoje
+  const isHabitCompletedToday = (habit: any) => {
+    if (!habit.records || habit.records.length === 0) return false;
+    
+    const todayRecord = habit.records.find((record: any) => {
+      const recordDate = new Date(record.date).toISOString().split('T')[0];
+      return recordDate === today;
+    });
+    
+    return todayRecord?.completed || false;
+  };
+
+  // Função corrigida para calcular sequência de dias consecutivos
   const getHabitStreak = (habit: any) => {
     if (!habit.records || habit.records.length === 0) return 0;
     
-    // Calcular sequência atual
-    let streak = 0;
+    // Ordenar registros por data (mais recente primeiro)
     const sortedRecords = habit.records
       .filter((record: any) => record.completed)
       .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
     
     if (sortedRecords.length === 0) return 0;
     
-    const today = new Date();
-    let currentDate = new Date(today);
+    let streak = 0;
+    const currentDate = new Date();
     
-    for (let i = 0; i < sortedRecords.length; i++) {
-      const recordDate = new Date(sortedRecords[i].date);
-      const currentDateStr = currentDate.toISOString().split('T')[0];
-      const recordDateStr = recordDate.toISOString().split('T')[0];
+    // Começar verificando de hoje para trás
+    for (let i = 0; i >= 0; i++) {
+      const checkDate = new Date(currentDate);
+      checkDate.setDate(checkDate.getDate() - i);
+      const checkDateStr = checkDate.toISOString().split('T')[0];
       
-      if (currentDateStr === recordDateStr) {
+      const hasRecord = sortedRecords.find((record: { date: string | number | Date; }) => {
+        const recordDate = new Date(record.date).toISOString().split('T')[0];
+        return recordDate === checkDateStr;
+      });
+      
+      if (hasRecord) {
         streak++;
-        currentDate.setDate(currentDate.getDate() - 1);
       } else {
-        break;
+        // Se não há registro para este dia, parar a contagem
+        // mas só se não for o primeiro dia (hoje)
+        if (i > 0) break;
       }
+      
+      // Evitar loop infinito
+      if (i > 365) break;
     }
     
     return streak;
   };
 
-  const isHabitCompletedToday = (habit: any) => {
-    if (!habit.records) return false;
+  // Estatísticas calculadas dinamicamente
+  const stats = useMemo(() => {
+    const totalHabits = habits.length;
+    const completedToday = todayHabits.filter(habit => isHabitCompletedToday(habit)).length;
     
-    const todayRecord = habit.records.find((record: any) => {
-      const recordDate = record.date.split('T')[0];
-      const todayDate = today.split('T')[0];
-      return recordDate === todayDate;
+    // Calcular completions desta semana
+    const startOfWeek = new Date();
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    
+    let totalCompletionsThisWeek = 0;
+    habits.forEach(habit => {
+      if (habit.records) {
+        habit.records.forEach((record: any) => {
+          const recordDate = new Date(record.date);
+          if (record.completed && recordDate >= startOfWeek) {
+            totalCompletionsThisWeek++;
+          }
+        });
+      }
     });
-    return todayRecord?.completed || false;
-  };
+    
+    // Calcular completions deste mês
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    
+    let totalCompletionsThisMonth = 0;
+    habits.forEach(habit => {
+      if (habit.records) {
+        habit.records.forEach((record: any) => {
+          const recordDate = new Date(record.date);
+          if (record.completed && recordDate >= startOfMonth) {
+            totalCompletionsThisMonth++;
+          }
+        });
+      }
+    });
+    
+    return {
+      totalHabits,
+      completedToday,
+      totalCompletionsThisWeek,
+      totalCompletionsThisMonth
+    };
+  }, [habits, todayHabits, today]);
 
-  const calculateSuccessRate = () => {
+  // Taxa de sucesso calculada dinamicamente
+  const calculateSuccessRate = useMemo(() => {
     if (habits.length === 0) return 0;
     
     const currentMonth = new Date().getMonth();
@@ -108,7 +168,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     habits.forEach(habit => {
       if (!habit.records) return;
       
-      habit.records.forEach(record => {
+      habit.records.forEach((record: any) => {
         const recordDate = new Date(record.date);
         if (recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear) {
           totalDaysWithHabits++;
@@ -120,23 +180,31 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     });
     
     return totalDaysWithHabits > 0 ? Math.round((completedDays / totalDaysWithHabits) * 100) : 0;
-  };
+  }, [habits]);
 
-  const getCurrentStreak = () => {
+  // Sequência atual calculada dinamicamente
+  const getCurrentStreak = useMemo(() => {
     if (habits.length === 0) return 0;
     
-    // Calcular a sequência de dias consecutivos com pelo menos 1 hábito completado
-    const today = new Date();
     let streak = 0;
-    let currentDate = new Date(today);
+    const currentDate = new Date();
     
-    while (true) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      const habitsForDate = getHabitsForDate(dateStr);
+    // Verificar cada dia consecutivo
+    for (let i = 0; i < 365; i++) { // Limite para evitar loop infinito
+      const checkDate = new Date(currentDate);
+      checkDate.setDate(checkDate.getDate() - i);
+      const dateStr = checkDate.toISOString().split('T')[0];
       
+      const habitsForDate = getHabitsForDate(dateStr);
       let hasCompletedHabit = false;
+      
       for (const habit of habitsForDate) {
-        if (isHabitCompletedToday(habit)) {
+        const habitRecord = habit.records?.find((record: any) => {
+          const recordDate = new Date(record.date).toISOString().split('T')[0];
+          return recordDate === dateStr && record.completed;
+        });
+        
+        if (habitRecord) {
           hasCompletedHabit = true;
           break;
         }
@@ -144,41 +212,32 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       
       if (hasCompletedHabit) {
         streak++;
-        currentDate.setDate(currentDate.getDate() - 1);
       } else {
-        break;
+        // Se não completou nenhum hábito neste dia, parar
+        // mas só se não for hoje (primeiro dia)
+        if (i > 0) break;
       }
     }
     
     return streak;
-  };
+  }, [habits, getHabitsForDate]);
 
   // Função para lidar com a conclusão do hábito
   const handleCompleteHabit = async (habitId: string, habitName: string) => {
-    // Verificar se o hábito já está sendo atualizado
-    if (updatingHabits.has(habitId)) {
-      return;
-    }
+    if (updatingHabits.has(habitId)) return;
 
-    // Adicionar o hábito ao conjunto de hábitos sendo atualizados
     setUpdatingHabits(prev => new Set(prev).add(habitId));
     
     try {
       await toggleHabitCompletion(habitId, today);
-      
-      // Feedback visual por um momento
-      setTimeout(() => {
-        setUpdatingHabits(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(habitId);
-          return newSet;
-        });
-      }, 500);
-      
+      // Remover do conjunto após sucesso
+      setUpdatingHabits(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(habitId);
+        return newSet;
+      });
     } catch (error: any) {
       console.error('Erro ao atualizar hábito:', error);
-      
-      // Remover do conjunto em caso de erro
       setUpdatingHabits(prev => {
         const newSet = new Set(prev);
         newSet.delete(habitId);
@@ -200,10 +259,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   // Função para apagar hábito com confirmação
   const handleDeleteHabit = async (habitId: string, habitName: string) => {
-    // Verificar se o hábito já está sendo deletado
-    if (deletingHabits.has(habitId)) {
-      return;
-    }
+    if (deletingHabits.has(habitId)) return;
 
     Alert.alert(
       'Confirmar Exclusão',
@@ -217,17 +273,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           text: 'Excluir',
           style: 'destructive',
           onPress: async () => {
-            // Adicionar ao conjunto de hábitos sendo deletados
             setDeletingHabits(prev => new Set(prev).add(habitId));
             
             try {
-              // Chamar o serviço para deletar o hábito
               await HabitService.deleteHabit(habitId);
-              
-              // Recarregar a lista de hábitos
               await refreshHabits();
               
-              // Mostrar mensagem de sucesso
               Alert.alert(
                 'Sucesso', 
                 `Hábito "${habitName}" foi excluído com sucesso.`,
@@ -236,14 +287,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               
             } catch (error: any) {
               console.error('Erro ao deletar hábito:', error);
-              
               Alert.alert(
                 'Erro',
                 `Não foi possível excluir o hábito "${habitName}".\n\n${error.message || 'Tente novamente mais tarde.'}`,
                 [{ text: 'OK' }]
               );
             } finally {
-              // Remover do conjunto de hábitos sendo deletados
               setDeletingHabits(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(habitId);
@@ -272,13 +321,27 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           (isUpdating || isDeleting) && styles.habitCardUpdating
         ]}
       >
+        {/* Overlay de conclusão melhorado */}
+        {isCompleted && (
+          <View style={styles.completedOverlay}>
+            <View style={styles.completedBadge}>
+              <Text style={styles.completedBadgeText}>✓ CONCLUÍDO</Text>
+            </View>
+          </View>
+        )}
+        
         <View style={styles.habitCardHeader}>
-          {/* Indicador de categoria */}
+          {/* Indicador de categoria melhorado */}
           <View style={[
-            styles.categoryDot, 
+            styles.categoryIndicator,
             { backgroundColor: categoryColor },
-            isCompleted && styles.categoryDotCompleted
-          ]} />
+            isCompleted && styles.categoryIndicatorCompleted
+          ]}>
+            <View style={[
+              styles.categoryDot, 
+              { backgroundColor: isCompleted ? '#FFFFFF' : categoryColor }
+            ]} />
+          </View>
           
           {/* Informações do hábito */}
           <View style={styles.habitInfo}>
@@ -290,7 +353,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </Text>
             <Text style={[
               styles.habitCategory, 
-              { color: isCompleted ? '#6B7280' : categoryColor }
+              { color: isCompleted ? '#16A34A' : categoryColor }
             ]}>
               {categoryName}
             </Text>
@@ -304,26 +367,29 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             )}
           </View>
           
-          {/* Status de conclusão */}
+          {/* Status de conclusão melhorado */}
           <View style={styles.habitStatus}>
             <View style={[
               styles.statusIndicator,
               isCompleted && styles.statusIndicatorCompleted
             ]}>
-              {isCompleted && <Text style={styles.checkIcon}>✓</Text>}
+              {isCompleted ? (
+                <Text style={styles.checkIcon}>✓</Text>
+              ) : (
+                <View style={styles.emptyCircle} />
+              )}
             </View>
             <Text style={[
               styles.streakText,
               isCompleted && styles.streakTextCompleted
             ]}>
-              {streak} dias
+              🔥 {streak} dias
             </Text>
           </View>
         </View>
         
         {/* Botões de Ação */}
         <View style={styles.actionButtons}>
-          {/* Botão de Concluir/Desmarcar */}
           <TouchableOpacity
             style={[
               styles.actionButton, 
@@ -349,7 +415,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
           
-          {/* Botão de Editar */}
           <TouchableOpacity
             style={[
               styles.actionButton, 
@@ -365,7 +430,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
           
-          {/* Botão de Apagar */}
           <TouchableOpacity
             style={[
               styles.actionButton, 
@@ -383,9 +447,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
         </View>
-        
-        {/* Linha de risco quando completado */}
-        {isCompleted && <View style={styles.strikethrough} />}
       </View>
     );
   };
@@ -426,11 +487,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>Sequência Atual</Text>
-            <Text style={styles.statNumber}>{getCurrentStreak()} dias</Text>
+            <Text style={styles.statNumber}>{getCurrentStreak} dias</Text>
+            <Text style={styles.statIcon}>🔥</Text>
           </View>
           <View style={[styles.statCard, styles.successCard]}>
             <Text style={styles.successLabel}>Taxa de Sucesso</Text>
-            <Text style={styles.successNumber}>{calculateSuccessRate()}%</Text>
+            <Text style={styles.successNumber}>{calculateSuccessRate}%</Text>
             <View style={styles.targetIcon}>
               <Text style={styles.targetText}>🎯</Text>
             </View>
@@ -445,8 +507,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               <Text style={styles.dailyStatNumber}>{stats.totalHabits}</Text>
               <Text style={styles.dailyStatLabel}>Total de Hábitos</Text>
             </View>
-            <View style={styles.dailyStatItem}>
-              <Text style={styles.dailyStatNumber}>{stats.completedToday}</Text>
+            <View style={[styles.dailyStatItem, styles.completedStatItem]}>
+              <Text style={[styles.dailyStatNumber, styles.completedStatNumber]}>
+                {stats.completedToday}
+              </Text>
               <Text style={styles.dailyStatLabel}>Completados Hoje</Text>
             </View>
             <View style={styles.dailyStatItem}>
@@ -572,10 +636,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563EB',
     padding: 16,
     borderRadius: 12,
+    position: 'relative',
   },
   successCard: {
     backgroundColor: '#16A34A',
-    position: 'relative',
   },
   statLabel: {
     fontSize: 14,
@@ -591,11 +655,18 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#FFFFFF',
+    marginBottom: 4,
   },
   successNumber: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#FFFFFF',
+  },
+  statIcon: {
+    fontSize: 16,
+    position: 'absolute',
+    top: 12,
+    right: 12,
   },
   targetIcon: {
     position: 'absolute',
@@ -627,12 +698,21 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  completedStatItem: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
   },
   dailyStatNumber: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#1F2937',
     marginBottom: 4,
+  },
+  completedStatNumber: {
+    color: '#16A34A',
   },
   dailyStatLabel: {
     fontSize: 12,
@@ -653,83 +733,116 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   habitCard: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 20,
     position: 'relative',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderWidth: 2,
+    borderColor: '#F3F4F6',
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
-      height: 1,
+      height: 4,
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   habitCardCompleted: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
+    backgroundColor: '#F8FDF9',
+    borderColor: '#22C55E',
+    transform: [{ scale: 0.98 }],
   },
   habitCardUpdating: {
     opacity: 0.7,
+  },
+  completedOverlay: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderRadius: 18,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    zIndex: 1,
+  },
+  completedBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#16A34A',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  completedBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   habitCardHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 16,
+    zIndex: 2,
+  },
+  categoryIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 12,
+    marginTop: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  categoryIndicatorCompleted: {
+    borderColor: '#16A34A',
   },
   categoryDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-    marginTop: 4,
-  },
-  categoryDotCompleted: {
-    opacity: 0.7,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   habitInfo: {
     flex: 1,
   },
   habitName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     color: '#1F2937',
     marginBottom: 4,
   },
   habitNameCompleted: {
-    color: '#6B7280',
-    textDecorationLine: 'line-through',
+    color: '#16A34A',
   },
   habitCategory: {
     fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
+    fontWeight: '600',
+    marginBottom: 6,
   },
   habitDescription: {
-    fontSize: 13,
+    fontSize: 14,
     color: '#6B7280',
-    lineHeight: 18,
+    lineHeight: 20,
   },
   habitDescriptionCompleted: {
-    color: '#9CA3AF',
-    textDecorationLine: 'line-through',
+    color: '#059669',
   },
   habitStatus: {
     alignItems: 'center',
   },
   statusIndicator: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 3,
     borderColor: '#D1D5DB',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 6,
   },
   statusIndicatorCompleted: {
     backgroundColor: '#16A34A',
@@ -737,13 +850,20 @@ const styles = StyleSheet.create({
   },
   checkIcon: {
     color: '#FFFFFF',
-    fontSize: 12,
+    fontSize: 18,
     fontWeight: 'bold',
   },
+  emptyCircle: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+  },
   streakText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#6B7280',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   streakTextCompleted: {
     color: '#16A34A',
@@ -751,20 +871,21 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
+    zIndex: 2,
   },
   actionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    borderRadius: 10,
+    borderWidth: 2,
   },
   completeButton: {
-    backgroundColor: '#F0F9FF',
+    backgroundColor: '#EFF6FF',
     borderColor: '#3B82F6',
   },
   completeButtonCompleted: {
@@ -780,10 +901,10 @@ const styles = StyleSheet.create({
     borderColor: '#EF4444',
   },
   buttonDisabled: {
-    opacity: 0.5,
+    opacity: 0.6,
   },
   completeButtonIcon: {
-    fontSize: 14,
+    fontSize: 16,
     marginRight: 6,
     color: '#3B82F6',
   },
@@ -792,14 +913,14 @@ const styles = StyleSheet.create({
   },
   editButtonIcon: {
     fontSize: 14,
-    marginRight: 4,
+    marginRight: 6,
   },
   deleteButtonIcon: {
     fontSize: 14,
-    marginRight: 4,
+    marginRight: 6,
   },
   actionButtonLabel: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
   },
   completeButtonLabel: {
@@ -814,15 +935,6 @@ const styles = StyleSheet.create({
   deleteButtonLabel: {
     color: '#EF4444',
   },
-  strikethrough: {
-    position: 'absolute',
-    top: '40%',
-    left: 16,
-    right: 16,
-    height: 1,
-    backgroundColor: '#16A34A',
-    opacity: 0.4,
-  },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
@@ -834,23 +946,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   emptyStateButton: {
-    backgroundColor: '#7C3AED',
-    paddingHorizontal: 24,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 20,
     paddingVertical: 12,
     borderRadius: 8,
   },
   emptyStateButtonText: {
     color: '#FFFFFF',
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
   },
   loadingContainer: {
     paddingVertical: 20,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   loadingText: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#6B7280',
   },
 });
