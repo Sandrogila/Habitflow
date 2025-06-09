@@ -119,6 +119,17 @@ export interface MarkHabitAsNotDoneDto {
   achievedValue?: number;
 }
 
+// Tipos para Notificações
+export interface NotificationDto {
+  id: string;
+  title: string;
+  message: string;
+  type: string;
+  isRead: boolean;
+  createdAt: string;
+  userId: string;
+}
+
 // Instância do Axios
 const api = axios.create({
   baseURL: BASE_URL,
@@ -455,6 +466,49 @@ export class HabitService {
         throw new Error('Não autorizado - faça login novamente');
       }
       throw new Error('Erro ao marcar hábito como não feito');
+    }
+  }
+}
+
+// Classe para serviços de Notificações
+export class NotificationService {
+  static async getNotifications(isRead?: boolean): Promise<NotificationDto[]> {
+    try {
+      const params = isRead !== undefined ? { isRead } : {};
+      const response = await api.get<NotificationDto[]>('/notifications', { params });
+      return response.data;
+    } catch (error: any) {
+      console.error('Erro ao buscar notificações:', error);
+      if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      }
+      throw new Error('Erro ao carregar notificações');
+    }
+  }
+
+  static async markNotificationAsRead(notificationId: string): Promise<void> {
+    try {
+      await api.patch(`/notifications/${notificationId}/read`);
+    } catch (error: any) {
+      console.error('Erro ao marcar notificação como lida:', error);
+      if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      } else if (error.response?.status === 404) {
+        throw new Error('Notificação não encontrada');
+      }
+      throw new Error('Erro ao marcar notificação como lida');
+    }
+  }
+
+  static async markAllNotificationsAsRead(): Promise<void> {
+    try {
+      await api.post('/notifications/mark-all-read');
+    } catch (error: any) {
+      console.error('Erro ao marcar todas as notificações como lidas:', error);
+      if (error.response?.status === 401) {
+        throw new Error('Não autorizado - faça login novamente');
+      }
+      throw new Error('Erro ao marcar todas as notificações como lidas');
     }
   }
 }
