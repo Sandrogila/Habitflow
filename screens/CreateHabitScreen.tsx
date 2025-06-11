@@ -1,4 +1,4 @@
-// CreateHabitScreen.tsx - Versão corrigida
+// CreateHabitScreen.tsx - Versão com navegação para criar categoria
 import React, { useState } from 'react';
 import {
   View,
@@ -100,11 +100,10 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
       console.log('Dados originais:', habitData);
       
       // Remover campos undefined para evitar problemas na API
-     const cleanedData = Object.fromEntries(
-       Object.entries(habitData).filter(([_, value]) => value !== undefined)
-     ) as unknown as CreateHabitDto;
+      const cleanedData = Object.fromEntries(
+        Object.entries(habitData).filter(([_, value]) => value !== undefined)
+      ) as unknown as CreateHabitDto;
 
-      
       console.log('Dados limpos:', cleanedData);
       console.log('Categorias disponíveis:', categories.map(c => ({ id: c.id, name: c.name })));
       console.log('================================');
@@ -145,6 +144,10 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
     }
   };
 
+  const handleCreateNewCategory = () => {
+    navigation.navigate('CreateCategory');
+  };
+
   const ColorPicker = () => (
     <View style={styles.colorPickerContainer}>
       {predefinedColors.map((colorOption) => (
@@ -166,6 +169,94 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
     </View>
   );
 
+  const CategorySelector = () => {
+    if (categories.length === 0) {
+      return (
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Categoria</Text>
+          <View style={styles.emptyCategoryContainer}>
+            <Text style={styles.emptyCategoryText}>
+              Você ainda não tem categorias cadastradas
+            </Text>
+            <TouchableOpacity
+              style={styles.createCategoryButton}
+              onPress={handleCreateNewCategory}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.createCategoryButtonText}>
+                + Criar minha primeira categoria
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.inputGroup}>
+        <View style={styles.categoryHeader}>
+          <Text style={styles.label}>Categoria</Text>
+          <TouchableOpacity
+            style={styles.addCategoryButton}
+            onPress={handleCreateNewCategory}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.addCategoryButtonText}>+ Nova categoria</Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View style={styles.categoriesContainer}>
+          <TouchableOpacity
+            style={[
+              styles.categoryButton,
+              !categoryId && styles.categoryButtonSelected
+            ]}
+            onPress={() => setCategoryId('')}
+            activeOpacity={0.7}
+          >
+            <Text style={[
+              styles.categoryText,
+              !categoryId && styles.categoryTextSelected
+            ]}>
+              Nenhuma
+            </Text>
+          </TouchableOpacity>
+          
+          {categories.map((cat) => (
+            <TouchableOpacity
+              key={cat.id}
+              style={[
+                styles.categoryButton,
+                categoryId === cat.id && { 
+                  backgroundColor: cat.color,
+                  borderColor: cat.color
+                }
+              ]}
+              onPress={() => setCategoryId(cat.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.categoryButtonContent}>
+                {cat.icon && (
+                  <Text style={styles.categoryIcon}>{cat.icon}</Text>
+                )}
+                <Text style={[
+                  styles.categoryText,
+                  categoryId === cat.id && styles.categoryTextSelected
+                ]}>
+                  {cat.name}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
+        <Text style={styles.helperText}>
+          Organize seus hábitos por categoria ou crie uma nova
+        </Text>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
@@ -178,7 +269,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
         >
           <View style={styles.content}>
             <View style={styles.header}>
-              <Text style={styles.greeting}>Olá, Seja bem vindo ao painel criar habitos</Text>
+              <Text style={styles.greeting}>Olá, Seja bem vindo ao painel criar hábitos</Text>
               <Text style={styles.subtitle}>Continue construindo seus hábitos</Text>
             </View>
 
@@ -225,49 +316,7 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                 <Text style={styles.helperText}>Defina uma meta específica para seu hábito</Text>
               </View>
 
-              {categories.length > 0 && (
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Categoria (Opcional)</Text>
-                  <View style={styles.categoriesContainer}>
-                    <TouchableOpacity
-                      style={[
-                        styles.categoryButton,
-                        !categoryId && styles.categoryButtonSelected
-                      ]}
-                      onPress={() => setCategoryId('')}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[
-                        styles.categoryText,
-                        !categoryId && styles.categoryTextSelected
-                      ]}>
-                        Nenhuma
-                      </Text>
-                    </TouchableOpacity>
-                    {categories.map((cat) => (
-                      <TouchableOpacity
-                        key={cat.id}
-                        style={[
-                          styles.categoryButton,
-                          categoryId === cat.id && { 
-                            backgroundColor: cat.color,
-                            borderColor: cat.color
-                          }
-                        ]}
-                        onPress={() => setCategoryId(cat.id)}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[
-                          styles.categoryText,
-                          categoryId === cat.id && styles.categoryTextSelected
-                        ]}>
-                          {cat.name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              )}
+              <CategorySelector />
 
               <View style={styles.inputGroup}>
                 <Text style={styles.label}>Frequência *</Text>
@@ -298,9 +347,6 @@ const CreateHabitScreen: React.FC<CreateHabitScreenProps> = ({ navigation }) => 
                 <Text style={styles.label}>Cor do Hábito</Text>
                 <ColorPicker />
               </View>
-
-              {/* Debug info - remover em produção */}
-          
 
               <TouchableOpacity
                 style={[
@@ -387,6 +433,53 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontStyle: 'italic',
   },
+  // Estilos para quando não há categorias
+  emptyCategoryContainer: {
+    padding: 20,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    gap: 12,
+  },
+  emptyCategoryText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  createCategoryButton: {
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  createCategoryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  // Estilos para o header das categorias
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  addCategoryButton: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  addCategoryButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#7C3AED',
+  },
+  // Estilos para as categorias
   categoriesContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -404,6 +497,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     borderColor: '#9CA3AF',
   },
+  categoryButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  categoryIcon: {
+    fontSize: 14,
+  },
   categoryText: {
     fontSize: 14,
     color: '#6B7280',
@@ -413,6 +514,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '600',
   },
+  // Estilos para frequência
   frequencyContainer: {
     gap: 12,
   },
@@ -447,6 +549,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#1F2937',
   },
+  // Estilos para cores
   colorPickerContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -470,6 +573,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  // Estilos para botão de salvar
   saveButton: {
     backgroundColor: '#7C3AED',
     paddingVertical: 16,
@@ -484,24 +588,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
-  },
-  // Debug styles - remover em produção
-  debugContainer: {
-    backgroundColor: '#F3F4F6',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 16,
-  },
-  debugTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 8,
-  },
-  debugText: {
-    fontSize: 12,
-    color: '#6B7280',
-    marginBottom: 4,
   },
 });
 

@@ -4,8 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuração base da API - ATUALIZE ESTAS URLs
 const BASE_URL = process.env.NODE_ENV === 'development' 
-    ? 'http://192.168.0.17:5071' // IP da máquina que roda o back-end
-    : 'http://192.168.0.17:5071'; // Mesmo IP para produção local
+    ? 'http://192.168.0.14:5071' // IP da máquina que roda o back-end
+    : 'http://192.168.0.14:5071'; // Mesmo IP para produção local
 
 // Tipos para as requisições e respostas
 export interface LoginRequest {

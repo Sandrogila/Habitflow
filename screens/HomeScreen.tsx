@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,16 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { useHabits } from '../context/HabitContext';
 import { AuthService, UserDto, HabitService } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
+};
+
+// Chaves para o AsyncStorage
+const STORAGE_KEYS = {
+  HABIT_COMPLETIONS: '@HabitFlow:completions',
+  LAST_RESET_DATE: '@HabitFlow:lastResetDate'
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
@@ -22,13 +29,66 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [currentUser, setCurrentUser] = useState<UserDto | null>(null);
   const [updatingHabits, setUpdatingHabits] = useState<Set<string>>(new Set());
   const [deletingHabits, setDeletingHabits] = useState<Set<string>>(new Set());
+  const [localCompletions, setLocalCompletions] = useState<Record<string, { completed: boolean, date: string }>>({});
+  const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   
   const today = new Date().toISOString().split('T')[0];
 
-  // Memoizar cálculos para otimizar performance
-  const todayHabits = useMemo(() => getHabitsForDate(today), [habits, today]);
+  // Função para carregar dados do AsyncStorage
+  const loadStorageData = async () => {
+    try {
+      const [completionsData, lastResetDate] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.HABIT_COMPLETIONS),
+        AsyncStorage.getItem(STORAGE_KEYS.LAST_RESET_DATE)
+      ]);
 
-  // Carregar dados do usuário logado
+      // Verificar se precisa resetar (novo dia)
+      const shouldReset = !lastResetDate || lastResetDate !== today;
+      
+      if (shouldReset) {
+        console.log('Novo dia detectado, resetando completions');
+        // Manter histórico mas resetar status de hoje
+        const currentCompletions = completionsData ? JSON.parse(completionsData) : {};
+        
+        // Resetar apenas os status de hoje, mantendo o histórico
+        const updatedCompletions: Record<string, { completed: boolean, date: string }> = {};
+        
+        // Manter completions de dias anteriores para histórico de sequência
+        Object.keys(currentCompletions).forEach(key => {
+          const completion = currentCompletions[key];
+          if (completion.date !== today) {
+            updatedCompletions[key] = completion;
+          }
+        });
+        
+        setLocalCompletions(updatedCompletions);
+        await AsyncStorage.setItem(STORAGE_KEYS.HABIT_COMPLETIONS, JSON.stringify(updatedCompletions));
+        await AsyncStorage.setItem(STORAGE_KEYS.LAST_RESET_DATE, today);
+      } else {
+        // Carregar dados existentes
+        const completions = completionsData ? JSON.parse(completionsData) : {};
+        setLocalCompletions(completions);
+        console.log('Dados carregados do storage:', Object.keys(completions).length, 'completions');
+      }
+      
+      setIsStorageLoaded(true);
+    } catch (error) {
+      console.error('Erro ao carregar dados do storage:', error);
+      setIsStorageLoaded(true);
+    }
+  };
+
+  // Função para salvar dados no AsyncStorage
+  const saveStorageData = async (completions: Record<string, { completed: boolean, date: string }>) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEYS.HABIT_COMPLETIONS, JSON.stringify(completions));
+      await AsyncStorage.setItem(STORAGE_KEYS.LAST_RESET_DATE, today);
+    } catch (error) {
+      console.error('Erro ao salvar dados no storage:', error);
+    }
+  };
+
+  // Carregar dados do usuário e storage
   useEffect(() => {
     const loadUserData = async () => {
       try {
@@ -40,7 +100,39 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     };
 
     loadUserData();
+    loadStorageData();
   }, []);
+
+  // Função melhorada para verificar se o hábito foi completado hoje
+  const isHabitCompletedToday = useCallback((habit: any) => {
+    const localKey = `${habit.id}-${today}`;
+    
+    // Verificar primeiro no estado local (dados persistidos)
+    if (localCompletions[localKey]) {
+      return localCompletions[localKey].completed && localCompletions[localKey].date === today;
+    }
+
+    // Se não tem no estado local, verificar os records do backend
+    if (!habit.records || habit.records.length === 0) return false;
+    
+    const todayRecord = habit.records.find((record: any) => {
+      const recordDate = new Date(record.date).toISOString().split('T')[0];
+      return recordDate === today;
+    });
+    
+    return todayRecord?.completed || false;
+  }, [today, localCompletions]);
+
+  // Memoizar hábitos de hoje com estado local
+  const todayHabits = useMemo(() => {
+    if (!isStorageLoaded) return []; // Aguardar carregamento do storage
+    
+    const habitsForToday = getHabitsForDate(today);
+    return habitsForToday.map(habit => ({
+      ...habit,
+      isCompletedToday: isHabitCompletedToday(habit)
+    }));
+  }, [habits, today, getHabitsForDate, isHabitCompletedToday, isStorageLoaded]);
 
   const getCategoryColor = (categoryId?: string) => {
     if (!categoryId) return '#6B7280';
@@ -56,96 +148,111 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     return category?.name || 'Sem categoria';
   };
 
-  // Função melhorada para verificar se o hábito foi completado hoje
-  const isHabitCompletedToday = (habit: any) => {
-    if (!habit.records || habit.records.length === 0) return false;
-    
-    const todayRecord = habit.records.find((record: any) => {
-      const recordDate = new Date(record.date).toISOString().split('T')[0];
-      return recordDate === today;
-    });
-    
-    return todayRecord?.completed || false;
-  };
-
   // Função corrigida para calcular sequência de dias consecutivos
-  const getHabitStreak = (habit: any) => {
-    if (!habit.records || habit.records.length === 0) return 0;
-    
-    // Ordenar registros por data (mais recente primeiro)
-    const sortedRecords = habit.records
-      .filter((record: any) => record.completed)
-      .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    if (sortedRecords.length === 0) return 0;
-    
+  const getHabitStreak = useCallback((habit: any) => {
     let streak = 0;
     const currentDate = new Date();
     
-    // Começar verificando de hoje para trás
-    for (let i = 0; i >= 0; i++) {
+    // Verificar cada dia consecutivo para trás
+    for (let i = 0; i < 365; i++) { // Limite para evitar loop infinito
       const checkDate = new Date(currentDate);
       checkDate.setDate(checkDate.getDate() - i);
       const checkDateStr = checkDate.toISOString().split('T')[0];
       
-      const hasRecord = sortedRecords.find((record: { date: string | number | Date; }) => {
-        const recordDate = new Date(record.date).toISOString().split('T')[0];
-        return recordDate === checkDateStr;
-      });
+      let isCompletedOnDate = false;
       
-      if (hasRecord) {
-        streak++;
-      } else {
-        // Se não há registro para este dia, parar a contagem
-        // mas só se não for o primeiro dia (hoje)
-        if (i > 0) break;
+      // Verificar no estado local primeiro
+      const localKey = `${habit.id}-${checkDateStr}`;
+      if (localCompletions[localKey]) {
+        isCompletedOnDate = localCompletions[localKey].completed && localCompletions[localKey].date === checkDateStr;
+      } else if (habit.records && habit.records.length > 0) {
+        // Verificar nos records do backend
+        const record = habit.records.find((record: any) => {
+          const recordDate = new Date(record.date).toISOString().split('T')[0];
+          return recordDate === checkDateStr;
+        });
+        isCompletedOnDate = record?.completed || false;
       }
       
-      // Evitar loop infinito
-      if (i > 365) break;
+      if (isCompletedOnDate) {
+        streak++;
+      } else {
+        // Se não completou neste dia, parar a contagem
+        // Mas permitir que o primeiro dia (hoje) seja zero
+        break;
+      }
     }
     
     return streak;
-  };
+  }, [localCompletions]);
+
+  // Função para contar completions em um período
+  const countCompletionsInPeriod = useCallback((startDate: Date, endDate: Date) => {
+    let totalCompletions = 0;
+    
+    habits.forEach(habit => {
+      // Verificar cada dia do período
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const localKey = `${habit.id}-${dateStr}`;
+        
+        let isCompletedOnDate = false;
+        
+        // Verificar no estado local primeiro
+        if (localCompletions[localKey]) {
+          isCompletedOnDate = localCompletions[localKey].completed && localCompletions[localKey].date === dateStr;
+        } else if (habit.records && habit.records.length > 0) {
+          // Verificar nos records do backend
+          const record = habit.records.find((record: any) => {
+            const recordDate = new Date(record.date).toISOString().split('T')[0];
+            return recordDate === dateStr;
+          });
+          isCompletedOnDate = record?.completed || false;
+        }
+        
+        if (isCompletedOnDate) {
+          totalCompletions++;
+        }
+        
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+    
+    return totalCompletions;
+  }, [habits, localCompletions]);
 
   // Estatísticas calculadas dinamicamente
   const stats = useMemo(() => {
+    if (!isStorageLoaded) {
+      return {
+        totalHabits: 0,
+        completedToday: 0,
+        totalCompletionsThisWeek: 0,
+        totalCompletionsThisMonth: 0
+      };
+    }
+    
     const totalHabits = habits.length;
-    const completedToday = todayHabits.filter(habit => isHabitCompletedToday(habit)).length;
+    const completedToday = todayHabits.filter(habit => habit.isCompletedToday).length;
     
     // Calcular completions desta semana
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay()); // Voltar para domingo
     startOfWeek.setHours(0, 0, 0, 0);
+    const endOfWeek = new Date(now);
+    endOfWeek.setHours(23, 59, 59, 999);
     
-    let totalCompletionsThisWeek = 0;
-    habits.forEach(habit => {
-      if (habit.records) {
-        habit.records.forEach((record: any) => {
-          const recordDate = new Date(record.date);
-          if (record.completed && recordDate >= startOfWeek) {
-            totalCompletionsThisWeek++;
-          }
-        });
-      }
-    });
+    const totalCompletionsThisWeek = countCompletionsInPeriod(startOfWeek, endOfWeek);
     
     // Calcular completions deste mês
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     startOfMonth.setHours(0, 0, 0, 0);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    endOfMonth.setHours(23, 59, 59, 999);
     
-    let totalCompletionsThisMonth = 0;
-    habits.forEach(habit => {
-      if (habit.records) {
-        habit.records.forEach((record: any) => {
-          const recordDate = new Date(record.date);
-          if (record.completed && recordDate >= startOfMonth) {
-            totalCompletionsThisMonth++;
-          }
-        });
-      }
-    });
+    const totalCompletionsThisMonth = countCompletionsInPeriod(startOfMonth, endOfMonth);
     
     return {
       totalHabits,
@@ -153,11 +260,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       totalCompletionsThisWeek,
       totalCompletionsThisMonth
     };
-  }, [habits, todayHabits, today]);
+  }, [habits, todayHabits, countCompletionsInPeriod, isStorageLoaded]);
 
   // Taxa de sucesso calculada dinamicamente
   const calculateSuccessRate = useMemo(() => {
-    if (habits.length === 0) return 0;
+    if (!isStorageLoaded || habits.length === 0) return 0;
     
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
@@ -165,26 +272,43 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     let totalDaysWithHabits = 0;
     let completedDays = 0;
     
-    habits.forEach(habit => {
-      if (!habit.records) return;
+    // Calcular para cada dia do mês atual
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const today = new Date();
+    
+    for (let day = 1; day <= Math.min(daysInMonth, today.getDate()); day++) {
+      const checkDate = new Date(currentYear, currentMonth, day);
+      const dateStr = checkDate.toISOString().split('T')[0];
       
-      habit.records.forEach((record: any) => {
-        const recordDate = new Date(record.date);
-        if (recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear) {
-          totalDaysWithHabits++;
-          if (record.completed) {
-            completedDays++;
-          }
+      habits.forEach(habit => {
+        const localKey = `${habit.id}-${dateStr}`;
+        let isCompletedOnDate = false;
+        
+        // Verificar no estado local primeiro
+        if (localCompletions[localKey]) {
+          isCompletedOnDate = localCompletions[localKey].completed && localCompletions[localKey].date === dateStr;
+        } else if (habit.records && habit.records.length > 0) {
+          // Verificar nos records do backend
+          const record = habit.records.find((record: any) => {
+            const recordDate = new Date(record.date).toISOString().split('T')[0];
+            return recordDate === dateStr;
+          });
+          isCompletedOnDate = record?.completed || false;
+        }
+        
+        totalDaysWithHabits++;
+        if (isCompletedOnDate) {
+          completedDays++;
         }
       });
-    });
+    }
     
     return totalDaysWithHabits > 0 ? Math.round((completedDays / totalDaysWithHabits) * 100) : 0;
-  }, [habits]);
+  }, [habits, localCompletions, isStorageLoaded]);
 
   // Sequência atual calculada dinamicamente
   const getCurrentStreak = useMemo(() => {
-    if (habits.length === 0) return 0;
+    if (!isStorageLoaded || habits.length === 0) return 0;
     
     let streak = 0;
     const currentDate = new Date();
@@ -199,14 +323,25 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       let hasCompletedHabit = false;
       
       for (const habit of habitsForDate) {
-        const habitRecord = habit.records?.find((record: any) => {
-          const recordDate = new Date(record.date).toISOString().split('T')[0];
-          return recordDate === dateStr && record.completed;
-        });
+        const localKey = `${habit.id}-${dateStr}`;
         
-        if (habitRecord) {
-          hasCompletedHabit = true;
-          break;
+        // Verificar no estado local primeiro
+        if (localCompletions[localKey]) {
+          if (localCompletions[localKey].completed && localCompletions[localKey].date === dateStr) {
+            hasCompletedHabit = true;
+            break;
+          }
+        } else if (habit.records && habit.records.length > 0) {
+          // Verificar nos records do backend
+          const record = habit.records.find((record: any) => {
+            const recordDate = new Date(record.date).toISOString().split('T')[0];
+            return recordDate === dateStr && record.completed;
+          });
+          
+          if (record) {
+            hasCompletedHabit = true;
+            break;
+          }
         }
       }
       
@@ -214,41 +349,65 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         streak++;
       } else {
         // Se não completou nenhum hábito neste dia, parar
-        // mas só se não for hoje (primeiro dia)
-        if (i > 0) break;
+        break;
       }
     }
     
     return streak;
-  }, [habits, getHabitsForDate]);
+  }, [habits, getHabitsForDate, localCompletions, isStorageLoaded]);
 
-  // Função para lidar com a conclusão do hábito
+  // Função para lidar com a conclusão do hábito - MELHORADA
   const handleCompleteHabit = async (habitId: string, habitName: string) => {
     if (updatingHabits.has(habitId)) return;
 
+    const localKey = `${habitId}-${today}`;
+    const currentStatus = isHabitCompletedToday(habits.find(h => h.id === habitId));
+    const newStatus = !currentStatus;
+
     setUpdatingHabits(prev => new Set(prev).add(habitId));
     
+    // Atualizar estado local imediatamente para UI responsiva
+    const updatedCompletions = {
+      ...localCompletions,
+      [localKey]: {
+        completed: newStatus,
+        date: today
+      }
+    };
+    
+    setLocalCompletions(updatedCompletions);
+    
+    // Salvar no AsyncStorage imediatamente
+    await saveStorageData(updatedCompletions);
+    
     try {
-      await toggleHabitCompletion(habitId, today);
-      // Remover do conjunto após sucesso
-      setUpdatingHabits(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(habitId);
-        return newSet;
-      });
-    } catch (error: any) {
-      console.error('Erro ao atualizar hábito:', error);
-      setUpdatingHabits(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(habitId);
-        return newSet;
-      });
+      console.log(`Atualizando hábito: ${habitId}, novo status: ${newStatus}`);
       
-      Alert.alert(
-        'Erro', 
-        `Não foi possível atualizar o hábito "${habitName}". ${error.message || 'Tente novamente.'}`,
-        [{ text: 'OK' }]
-      );
+      // Tentar sincronizar com o backend (opcional)
+      await toggleHabitCompletion(habitId, today);
+      console.log('Sincronizado com backend com sucesso');
+      
+      // Atualizar dados do backend
+      setTimeout(async () => {
+        try {
+          await refreshHabits();
+          console.log('Dados do backend atualizados');
+        } catch (refreshError) {
+          console.error('Erro ao atualizar dados do backend:', refreshError);
+          // Mesmo com erro no backend, mantemos os dados locais
+        }
+      }, 1000);
+      
+    } catch (error: any) {
+      console.error('Erro ao sincronizar com backend:', error);
+      // Não reverter o estado local, pois queremos manter a funcionalidade offline
+      console.log('Mantendo alteração apenas localmente');
+    } finally {
+      setUpdatingHabits(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(habitId);
+        return newSet;
+      });
     }
   };
 
@@ -279,6 +438,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               await HabitService.deleteHabit(habitId);
               await refreshHabits();
               
+              // Limpar estados locais relacionados ao hábito
+              const updatedCompletions = { ...localCompletions };
+              Object.keys(updatedCompletions).forEach(key => {
+                if (key.startsWith(`${habitId}-`)) {
+                  delete updatedCompletions[key];
+                }
+              });
+              
+              setLocalCompletions(updatedCompletions);
+              await saveStorageData(updatedCompletions);
+              
               Alert.alert(
                 'Sucesso', 
                 `Hábito "${habitName}" foi excluído com sucesso.`,
@@ -306,7 +476,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const HabitCard = ({ habit }: { habit: any }) => {
-    const isCompleted = isHabitCompletedToday(habit);
+    const isCompleted = habit.isCompletedToday;
     const categoryColor = getCategoryColor(habit.categoryId);
     const categoryName = getCategoryName(habit.categoryId);
     const streak = getHabitStreak(habit);
@@ -411,7 +581,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               styles.completeButtonLabel,
               isCompleted && styles.completeButtonLabelCompleted
             ]}>
-              {isUpdating ? 'Atualizando...' : (isCompleted ? 'Concluído' : 'Concluir')}
+              {isUpdating ? 'Salvando...' : (isCompleted ? 'Concluído' : 'Concluir')}
             </Text>
           </TouchableOpacity>
           
@@ -456,6 +626,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     if (!fullName) return 'Usuário';
     return fullName.split(' ')[0];
   };
+
+  // Mostrar loading se o storage ainda não foi carregado
+  if (!isStorageLoaded) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Carregando dados...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -556,14 +737,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {/* Loading indicator */}
         {loading && (
           <View style={styles.loadingContainer}>
-            <Text style={styles.loadingText}>Carregando...</Text>
+            <Text style={styles.loadingText}>Sincronizando...</Text>
           </View>
         )}
       </ScrollView>
     </SafeAreaView>
   );
 };
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

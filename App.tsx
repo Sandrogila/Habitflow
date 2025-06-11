@@ -8,11 +8,13 @@ import RegisterScreen from './screens/RegisterScreen';
 import HomeScreen from './screens/HomeScreen';
 import CalendarScreen from './screens/CalendarScreen';
 import CreateHabitScreen from './screens/CreateHabitScreen';
+import CreateCategoryScreen from './screens/CreateCategoryScreen';
 import EditHabitScreen from './screens/EditHabitScreen';
 import ReportsScreen from './screens/ReportsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import ConquistasScreen from './screens/ConquistasScreen';
 import { HabitProvider } from './context/HabitContext';
+import { CategoryProvider } from './context/CategoryContext';
 import { View, Text } from 'react-native';
 
 // Ícones para tabs
@@ -37,6 +39,7 @@ export type RootStackParamList = {
   Register: undefined;
   MainTabs: undefined;
   CreateHabit: undefined;
+  CreateCategory: undefined;
   EditHabit: { habitId: string };
   Reports: undefined;
   Profile: undefined;
@@ -117,70 +120,82 @@ const MainTabs = () => {
 
 const App: React.FC = () => {
   return (
-    <HabitProvider>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="HabitFlow"
-          screenOptions={{
-            headerShown: false,
-            headerStyle: {
-              backgroundColor: '#FFFFFF',
-            },
-            headerTintColor: '#1F2937',
-            headerTitleStyle: {
-              fontWeight: 'bold',
-              fontSize: 18,
-            },
-          }}
-        >
-          <Stack.Screen name="HabitFlow" component={HabitFlow} />
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="MainTabs" component={MainTabs} />
-          <Stack.Screen 
-            name="CreateHabit" 
-            component={CreateHabitScreen}
-            options={{
-              headerShown: true,
-              title: 'Novo Hábito',
-              headerBackTitle: 'Voltar',
-              presentation: 'modal',
-            }}
-          />
-          <Stack.Screen 
-            name="EditHabit" 
-            component={EditHabitScreen}
-            options={{
-              headerShown: true,
-              title: 'Editar Hábito',
-              headerBackTitle: 'Voltar',
-              presentation: 'modal',
-            }}
-          />
-          <Stack.Screen 
-            name="Reports" 
-            component={ReportsScreen}
-            options={{
+    <CategoryProvider>
+      <HabitProvider>
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="HabitFlow"
+            screenOptions={{
               headerShown: false,
+              headerStyle: {
+                backgroundColor: '#FFFFFF',
+              },
+              headerTintColor: '#1F2937',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+                fontSize: 18,
+              },
             }}
-          />
-          <Stack.Screen 
-            name="Profile" 
-            component={ProfileScreen}
-            options={{
-              headerShown: false,
-            }}
-          />
-          <Stack.Screen 
-            name="Conquistas" 
-            component={ConquistasScreen}
-            options={{
-              headerShown: false,
-            }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </HabitProvider>
+          >
+            <Stack.Screen name="HabitFlow" component={HabitFlow} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="MainTabs" component={MainTabs} />
+            <Stack.Screen 
+              name="CreateHabit" 
+              component={CreateHabitScreen}
+              options={{
+                headerShown: true,
+                title: 'Novo Hábito',
+                headerBackTitle: 'Voltar',
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="CreateCategory" 
+              component={CreateCategoryScreen}
+              options={{
+                headerShown: true,
+                title: 'Nova Categoria',
+                headerBackTitle: 'Voltar',
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="EditHabit" 
+              component={EditHabitScreen}
+              options={{
+                headerShown: true,
+                title: 'Editar Hábito',
+                headerBackTitle: 'Voltar',
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="Reports" 
+              component={ReportsScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen 
+              name="Profile" 
+              component={ProfileScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+            <Stack.Screen 
+              name="Conquistas" 
+              component={ConquistasScreen}
+              options={{
+                headerShown: false,
+              }}
+            />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </HabitProvider>
+    </CategoryProvider>
   );
 };
 

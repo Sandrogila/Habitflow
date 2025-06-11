@@ -25,6 +25,7 @@ export interface HabitRecord {
 }
 
 export interface Category {
+  icon: React.JSX.Element;
   id: string;
   name: string;
   description?: string;
@@ -91,6 +92,7 @@ export const HabitProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       name: apiCategory.name,
       description: apiCategory.description,
       color: apiCategory.color,
+      icon: <span />, // Placeholder icon, replace with your actual icon logic if needed
     };
   };
 
@@ -400,3 +402,6 @@ export const useHabits = () => {
   }
   return context;
 };
+
+
+export default HabitContext;
