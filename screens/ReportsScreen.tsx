@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
 import { useHabits } from '../context/HabitContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type ReportsScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -20,6 +21,7 @@ interface ChartDataItem {
   day: string;
   height: number;
   completed: number;
+  fullDayName: string;
 }
 
 interface CategoryStat {
@@ -35,10 +37,85 @@ interface WeeklyStats {
   totalActiveHabits: number;
 }
 
+// Chaves para o AsyncStorage (mesmas da HomeScreen)
+const STORAGE_KEYS = {
+  HABIT_COMPLETIONS: '@HabitFlow:completions',
+  LAST_RESET_DATE: '@HabitFlow:lastResetDate'
+};
+
 const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
-  const { habits, categories } = useHabits();
+  const { habits, categories, getHabitsForDate } = useHabits();
+  const [localCompletions, setLocalCompletions] = useState<Record<string, { completed: boolean, date: string }>>({});
+  const [isStorageLoaded, setIsStorageLoaded] = useState(false);
   
-  // Função auxiliar para determinar se um hábito deve aparecer em uma data
+  const today = new Date().toISOString().split('T')[0];
+
+  // Função para carregar dados do AsyncStorage (igual à HomeScreen)
+  const loadStorageData = async () => {
+    try {
+      const [completionsData, lastResetDate] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.HABIT_COMPLETIONS),
+        AsyncStorage.getItem(STORAGE_KEYS.LAST_RESET_DATE)
+      ]);
+
+      // Verificar se precisa resetar (novo dia)
+      const shouldReset = !lastResetDate || lastResetDate !== today;
+      
+      if (shouldReset) {
+        console.log('Novo dia detectado, resetando completions');
+        const currentCompletions = completionsData ? JSON.parse(completionsData) : {};
+        
+        const updatedCompletions: Record<string, { completed: boolean, date: string }> = {};
+        
+        Object.keys(currentCompletions).forEach(key => {
+          const completion = currentCompletions[key];
+          if (completion.date !== today) {
+            updatedCompletions[key] = completion;
+          }
+        });
+        
+        setLocalCompletions(updatedCompletions);
+        await AsyncStorage.setItem(STORAGE_KEYS.HABIT_COMPLETIONS, JSON.stringify(updatedCompletions));
+        await AsyncStorage.setItem(STORAGE_KEYS.LAST_RESET_DATE, today);
+      } else {
+        const completions = completionsData ? JSON.parse(completionsData) : {};
+        setLocalCompletions(completions);
+        console.log('Dados carregados do storage:', Object.keys(completions).length, 'completions');
+      }
+      
+      setIsStorageLoaded(true);
+    } catch (error) {
+      console.error('Erro ao carregar dados do storage:', error);
+      setIsStorageLoaded(true);
+    }
+  };
+
+  // Carregar dados do AsyncStorage
+  useEffect(() => {
+    loadStorageData();
+  }, []);
+
+  // Função para verificar se o hábito foi completado em uma data específica
+  const isHabitCompletedOnDate = useCallback((habit: any, dateStr: string) => {
+    const localKey = `${habit.id}-${dateStr}`;
+    
+    // Verificar primeiro no estado local (dados persistidos)
+    if (localCompletions[localKey]) {
+      return localCompletions[localKey].completed && localCompletions[localKey].date === dateStr;
+    }
+
+    // Se não tem no estado local, verificar os records do backend
+    if (!habit.records || habit.records.length === 0) return false;
+    
+    const record = habit.records.find((record: any) => {
+      const recordDate = new Date(record.date).toISOString().split('T')[0];
+      return recordDate === dateStr;
+    });
+    
+    return record?.completed || false;
+  }, [localCompletions]);
+
+  // Função para determinar se um hábito deve aparecer em uma data
   const shouldHabitAppearOnDate = (habit: any, date: Date): boolean => {
     const dayOfWeek = date.getDay();
     
@@ -50,15 +127,18 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
       case 'weekends':
         return dayOfWeek === 0 || dayOfWeek === 6;
       case 'weekly':
-        return true; // Assumindo que pode ser qualquer dia da semana
+        return true;
       default:
         return true;
     }
   };
   
-  // Gerar dados do gráfico dos últimos 7 dias
+  // Gerar dados do gráfico dos últimos 7 dias (aprimorado)
   const chartData = useMemo((): ChartDataItem[] => {
-    const days = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    if (!isStorageLoaded) return [];
+    
+    const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    const dayAbbrevs = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
     const last7Days: ChartDataItem[] = [];
     
     for (let i = 6; i >= 0; i--) {
@@ -66,27 +146,33 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       const dayName = days[date.getDay()];
+      const dayAbbrev = dayAbbrevs[date.getDay()];
       
       // Contar hábitos completados neste dia
       let completedCount = 0;
+      let totalHabitsForDay = 0;
+      
       habits.forEach(habit => {
-        const record = habit.records?.find(r => 
-          r.date.split('T')[0] === dateStr && r.completed
-        );
-        if (record) completedCount++;
+        if (shouldHabitAppearOnDate(habit, date)) {
+          totalHabitsForDay++;
+          if (isHabitCompletedOnDate(habit, dateStr)) {
+            completedCount++;
+          }
+        }
       });
       
       last7Days.push({
-        day: dayName.charAt(0), // Primeira letra do dia
-        height: Math.max(20, completedCount * 20), // Altura baseada nos hábitos completados
-        completed: completedCount
+        day: dayAbbrev,
+        height: Math.max(20, completedCount * 25), // Altura baseada nos hábitos completados
+        completed: completedCount,
+        fullDayName: dayName
       });
     }
     
     return last7Days;
-  }, [habits]);
+  }, [habits, isStorageLoaded, localCompletions, isHabitCompletedOnDate]);
 
-  // Agrupar hábitos por categoria
+  // Agrupar hábitos por categoria (melhorado)
   const categoryStats = useMemo((): CategoryStat[] => {
     const categoryCount: { [key: string]: CategoryStat } = {};
     
@@ -116,110 +202,142 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
       }
     });
     
-    return Object.values(categoryCount);
+    return Object.values(categoryCount).sort((a, b) => b.count - a.count);
   }, [habits, categories]);
 
-  // Calcular estatísticas da semana
-  const weeklyStats = useMemo((): WeeklyStats => {
-    const today = new Date().toISOString().split('T')[0];
-    const startOfWeek = new Date();
-    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-    const startOfWeekStr = startOfWeek.toISOString().split('T')[0];
-    
+  // Função para contar completions em um período
+  const countCompletionsInPeriod = useCallback((startDate: Date, endDate: Date) => {
     let totalCompletions = 0;
-    let totalPossibleCompletions = 0;
-    let currentStreak = 0;
-    let tempStreak = 0;
-    let maxStreak = 0;
+    let totalPossible = 0;
     
-    // Calcular total de conclusões na semana
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(date.getDate() + i);
-      const dateStr = date.toISOString().split('T')[0];
-      
-      let dayCompletions = 0;
-      let dayPossible = 0;
-      
-      habits.forEach(habit => {
-        // Verificar se o hábito deve aparecer neste dia
-        if (shouldHabitAppearOnDate(habit, date)) {
-          dayPossible++;
-          const record = habit.records?.find(r => 
-            r.date.split('T')[0] === dateStr && r.completed
-          );
-          if (record) {
-            dayCompletions++;
+    habits.forEach(habit => {
+      const currentDate = new Date(startDate);
+      while (currentDate <= endDate) {
+        if (shouldHabitAppearOnDate(habit, currentDate)) {
+          totalPossible++;
+          const dateStr = currentDate.toISOString().split('T')[0];
+          if (isHabitCompletedOnDate(habit, dateStr)) {
+            totalCompletions++;
           }
         }
-      });
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+    
+    return { totalCompletions, totalPossible };
+  }, [habits, isHabitCompletedOnDate]);
+
+  // Calcular estatísticas da semana (melhorado)
+  const weeklyStats = useMemo((): WeeklyStats => {
+    if (!isStorageLoaded) {
+      return {
+        totalCompletions: 0,
+        successRate: 0,
+        currentStreak: 0,
+        totalActiveHabits: 0
+      };
+    }
+    
+    const startOfWeek = new Date();
+    startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const endOfWeek = new Date();
+    endOfWeek.setHours(23, 59, 59, 999);
+    
+    const { totalCompletions, totalPossible } = countCompletionsInPeriod(startOfWeek, endOfWeek);
+    
+    // Calcular sequência atual
+    let currentStreak = 0;
+    const currentDate = new Date();
+    
+    for (let i = 0; i < 365; i++) {
+      const checkDate = new Date(currentDate);
+      checkDate.setDate(checkDate.getDate() - i);
+      const dateStr = checkDate.toISOString().split('T')[0];
       
-      totalCompletions += dayCompletions;
-      totalPossibleCompletions += dayPossible;
+      const habitsForDate = getHabitsForDate(dateStr);
+      let hasCompletedHabit = false;
       
-      // Calcular sequência
-      if (dayCompletions === dayPossible && dayPossible > 0) {
-        tempStreak++;
-        maxStreak = Math.max(maxStreak, tempStreak);
-        if (dateStr === today) {
-          currentStreak = tempStreak;
+      for (const habit of habitsForDate) {
+        if (isHabitCompletedOnDate(habit, dateStr)) {
+          hasCompletedHabit = true;
+          break;
         }
+      }
+      
+      if (hasCompletedHabit) {
+        currentStreak++;
       } else {
-        if (dateStr === today) {
-          currentStreak = 0;
-        }
-        tempStreak = 0;
+        break;
       }
     }
     
-    const successRate = totalPossibleCompletions > 0 
-      ? Math.round((totalCompletions / totalPossibleCompletions) * 100)
-      : 0;
+    const successRate = totalPossible > 0 ? Math.round((totalCompletions / totalPossible) * 100) : 0;
     
     return {
       totalCompletions,
       successRate,
-      currentStreak: Math.max(currentStreak, maxStreak),
+      currentStreak,
       totalActiveHabits: habits.length
     };
-  }, [habits, shouldHabitAppearOnDate]);
+  }, [habits, getHabitsForDate, isStorageLoaded, countCompletionsInPeriod, isHabitCompletedOnDate]);
 
-  // Função para mapear letras dos dias para nomes completos
-  const getDayName = (dayLetter: string): string => {
-    const dayMap: { [key: string]: string } = {
-      'D': 'Domingo',
-      'Sg': 'Segunda',
-      'T': 'Terça',
-      'Qa': 'Quarta',
-      'Qi': 'Quinta',
-      'Se': 'Sexta',
-      'Sa': 'Sábado'
+  // Calcular estatísticas mensais
+  const monthlyStats = useMemo(() => {
+    if (!isStorageLoaded) return { completions: 0, successRate: 0 };
+    
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    startOfMonth.setHours(0, 0, 0, 0);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    endOfMonth.setHours(23, 59, 59, 999);
+    
+    const { totalCompletions, totalPossible } = countCompletionsInPeriod(startOfMonth, endOfMonth);
+    const successRate = totalPossible > 0 ? Math.round((totalCompletions / totalPossible) * 100) : 0;
+    
+    return {
+      completions: totalCompletions,
+      successRate
     };
-    return dayMap[dayLetter] || 'Desconhecido';
-  };
+  }, [countCompletionsInPeriod, isStorageLoaded]);
 
-  // Função melhorada para obter o melhor dia
-  const getBestDay = (): string => {
-    if (chartData.length === 0) return 'Nenhum';
+  // Obter o melhor dia da semana
+  const getBestDay = (): { day: string; count: number } => {
+    if (chartData.length === 0) return { day: 'Nenhum', count: 0 };
     
     const bestDay = chartData.reduce((best, current) => 
       current.completed > best.completed ? current : best
     );
     
-    // Mapear corretamente baseado no índice
-    const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-    const dayIndex = chartData.indexOf(bestDay);
-    return days[dayIndex] || 'Desconhecido';
+    return {
+      day: bestDay.fullDayName,
+      count: bestDay.completed
+    };
   };
 
-  const ChartBar = ({ day, height, completed }: { day: string; height: number; completed: number }) => (
+  // Obter categoria mais ativa
+  const getMostActiveCategory = (): { name: string; count: number } => {
+    if (categoryStats.length === 0) return { name: 'Nenhuma', count: 0 };
+    
+    const mostActive = categoryStats.reduce((max, cat) => 
+      cat.count > max.count ? cat : max
+    );
+    
+    return {
+      name: mostActive.name,
+      count: mostActive.count
+    };
+  };
+
+  // Componentes
+  const ChartBar = ({ day, height, completed, fullDayName }: ChartDataItem) => (
     <View style={styles.chartBarContainer}>
       <View style={[styles.chartBar, { height: Math.max(height, 20) }]} />
       <Text style={styles.chartDay}>{day}</Text>
     </View>
   );
 
-  const CategoryItem = ({ name, color, count }: { name: string; color: string; count: number }) => (
+  const CategoryItem = ({ name, color, count }: CategoryStat) => (
     <View style={styles.categoryItem}>
       <View style={styles.categoryLeft}>
         <View style={[styles.categoryDot, { backgroundColor: color }]} />
@@ -241,6 +359,20 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
       </Text>
     </TouchableOpacity>
   );
+
+  // Loading state
+  if (!isStorageLoaded) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Carregando estatísticas...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const bestDay = getBestDay();
+  const mostActiveCategory = getMostActiveCategory();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -275,7 +407,8 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
                   key={index} 
                   day={item.day} 
                   height={item.height} 
-                  completed={item.completed} 
+                  completed={item.completed}
+                  fullDayName={item.fullDayName}
                 />
               ))}
             </View>
@@ -305,7 +438,7 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Weekly Stats */}
+        {/* Enhanced Weekly Stats */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Estatísticas da Semana</Text>
           
@@ -315,14 +448,15 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
               <Text style={styles.statLabel}>Hábitos Completados</Text>
             </View>
             
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{weeklyStats.successRate}%</Text>
+            <View style={[styles.statCard, styles.successRateCard]}>
+              <Text style={[styles.statNumber, styles.successRateNumber]}>{weeklyStats.successRate}%</Text>
               <Text style={styles.statLabel}>Taxa de Sucesso</Text>
             </View>
             
-            <View style={styles.statCard}>
-              <Text style={styles.statNumber}>{weeklyStats.currentStreak}</Text>
+            <View style={[styles.statCard, styles.streakCard]}>
+              <Text style={[styles.statNumber, styles.streakNumber]}>{weeklyStats.currentStreak}</Text>
               <Text style={styles.statLabel}>Sequência Atual</Text>
+              <Text style={styles.streakIcon}>🔥</Text>
             </View>
             
             <View style={styles.statCard}>
@@ -332,33 +466,67 @@ const ReportsScreen: React.FC<ReportsScreenProps> = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Insights Section */}
+        {/* Monthly Overview */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Resumo do Mês</Text>
+          
+          <View style={styles.monthlyContainer}>
+            <View style={styles.monthlyCard}>
+              <Text style={styles.monthlyNumber}>{monthlyStats.completions}</Text>
+              <Text style={styles.monthlyLabel}>Completions este mês</Text>
+            </View>
+            <View style={[styles.monthlyCard, styles.monthlySuccessCard]}>
+              <Text style={[styles.monthlyNumber, styles.monthlySuccessNumber]}>{monthlyStats.successRate}%</Text>
+              <Text style={styles.monthlyLabel}>Taxa de sucesso mensal</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Enhanced Insights Section */}
         {habits.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Insights</Text>
+            <Text style={styles.sectionTitle}>Insights Pessoais</Text>
             
             <View style={styles.insightsContainer}>
               <View style={styles.insightCard}>
-                <Text style={styles.insightTitle}>Melhor Dia da Semana</Text>
-                <Text style={styles.insightText}>
-                  {getBestDay()}
+                <View style={styles.insightHeader}>
+                  <Text style={styles.insightIcon}>📊</Text>
+                  <Text style={styles.insightTitle}>Melhor Dia da Semana</Text>
+                </View>
+                <Text style={styles.insightText}>{bestDay.day}</Text>
+                <Text style={styles.insightSubtext}>
+                  {bestDay.count} {bestDay.count === 1 ? 'hábito completado' : 'hábitos completados'} em média
                 </Text>
               </View>
               
               <View style={styles.insightCard}>
-                <Text style={styles.insightTitle}>Categoria Mais Ativa</Text>
-                <Text style={styles.insightText}>
-                  {categoryStats.length > 0 
-                    ? categoryStats.reduce((max, cat) => 
-                        cat.count > max.count ? cat : max
-                      ).name
-                    : 'Nenhuma'
-                  }
+                <View style={styles.insightHeader}>
+                  <Text style={styles.insightIcon}>🎯</Text>
+                  <Text style={styles.insightTitle}>Categoria Mais Ativa</Text>
+                </View>
+                <Text style={styles.insightText}>{mostActiveCategory.name}</Text>
+                <Text style={styles.insightSubtext}>
+                  {mostActiveCategory.count} {mostActiveCategory.count === 1 ? 'hábito' : 'hábitos'}
                 </Text>
               </View>
             </View>
           </View>
         )}
+
+        {/* Progress Summary */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Resumo de Progresso</Text>
+          
+          <View style={styles.summaryContainer}>
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>🚀 Continue assim!</Text>
+              <Text style={styles.summaryText}>
+                Você completou {weeklyStats.totalCompletions} hábitos esta semana com uma taxa de sucesso de {weeklyStats.successRate}%.
+                {weeklyStats.currentStreak > 0 && ` Sua sequência atual é de ${weeklyStats.currentStreak} dias!`}
+              </Text>
+            </View>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -448,9 +616,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   chartBar: {
-    width: 20,
+    width: 24,
     backgroundColor: '#7C3AED',
-    borderRadius: 10,
+    borderRadius: 12,
     marginBottom: 8,
   },
   chartDay: {
@@ -511,6 +679,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
+    position: 'relative',
+  },
+  successRateCard: {
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  streakCard: {
+    backgroundColor: '#FEF3E2',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
   },
   statNumber: {
     fontSize: 24,
@@ -518,7 +697,49 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 4,
   },
+  successRateNumber: {
+    color: '#16A34A',
+  },
+  streakNumber: {
+    color: '#EA580C',
+  },
   statLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'center',
+  },
+  streakIcon: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    fontSize: 16,
+  },
+  monthlyContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  monthlyCard: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+  },
+  monthlySuccessCard: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  monthlyNumber: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  monthlySuccessNumber: {
+    color: '#2563EB',
+  },
+  monthlyLabel: {
     fontSize: 12,
     color: '#6B7280',
     textAlign: 'center',
@@ -531,16 +752,59 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
   },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  insightIcon: {
+    fontSize: 16,
+    marginRight: 8,
+  },
   insightTitle: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1F2937',
-    marginBottom: 4,
   },
   insightText: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#7C3AED',
-    fontWeight: '500',
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  insightSubtext: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  summaryContainer: {
+    marginBottom: 20,
+  },
+  summaryCard: {
+    backgroundColor: '#F0F9FF',
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  summaryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+  },
+  summaryText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#6B7280',
   },
 });
 
