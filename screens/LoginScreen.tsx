@@ -124,7 +124,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               keyboardType="email-address"
               autoCapitalize="none"
               autoComplete="email"
-              placeholderTextColor="#C7C7CD"
+              placeholderTextColor="#8E8E93"
+              selectionColor="#8E44AD"
               editable={!loading}
               autoCorrect={false}
             />
@@ -134,7 +135,8 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
               value={password}
               onChangeText={setPassword}
               secureTextEntry
-              placeholderTextColor="#C7C7CD"
+              placeholderTextColor="#8E8E93"
+              selectionColor="#8E44AD"
               editable={!loading}
               autoCorrect={false}
             />
@@ -249,10 +251,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
     fontSize: 16,
-    color: '#2C2C2E', // ← Aqui garante que o texto digitado fique visível
+    color: '#000000', // Mudei para preto puro para garantir visibilidade
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#E5E5EA',
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto', // Fonte específica
   },
   inputDisabled: {
     opacity: 0.6,
